@@ -1,8 +1,10 @@
+# -*- coding: utf-8 -*-
 import sys
 from time import time
 from collections import Counter
 from Stemmer import Stemmer
 import simplejson as json
+import unicodedata
 
 def gen_stops():
     english_ignore = []
@@ -26,6 +28,28 @@ def text_processer(document):
     container = Counter(raw_strings)
     container.update([x for x in ngrams(raw_strings,2,4)])
     return container
+
+class BasicXmlExtract(object):
+
+    def __init__(self):
+        self.container = Counter()
+        self.stops = gen_stops()
+        self.globs = []
+
+    def data(self, data):
+        self.globs.append(data)
+        data = unicodedata.normalize('NFKD',data).encode('ascii','ignore')
+        self.globs.append(data)
+        data = data.lower().split()
+        if data:
+            ## single word tokens 
+            self.container.update([d for d in data if d not in self.stops])
+            ## ngrams
+            self.container.update([x for x in ngrams(tuple(data),2,2)])
+
+    def close(self):
+        return  self.container
+
 
 
 if __name__ == '__main__':
