@@ -7,18 +7,21 @@ The ways to visualize your thoughts are not very innovative. Boring notes and si
 ##Problem Definition
 *“Defines what the problem is without any reference to possible solutions”*
 *-Code Complete*
+
 The understanding of how continued note taking and learning new things, progresses oneself, and how that relates over time is too difficult to track and visualize. People learn without realizing what their learning and how that changes over time.
 
 
 ##Solution:
 *“All progress is precarious, and the solution of one problem brings us face to face with another problem.”*
 *-Martin Luther King, Jr.*
+
 Utilizing the storage and synchronization capabilities as well as a large user base of Evernote users, create a dynamic web based application that shows users detailed analysis of what the have taken notes of. Primarily focusing on the ease of discovering things about oneself through already written and available user data. 
 
 
 ##Keys to remember:
 *“Its the little details that are vital. Little things make big things happen*
 *-John Wooden*
+
 * Intuitive in it's design.
 * Displays logical layouts of  a persons thoughts.
 * Fast to display, must not have user feel as though time is wasted.
@@ -28,6 +31,7 @@ Utilizing the storage and synchronization capabilities as well as a large user b
 ##Requirements:
 *“Describe in detail what the program is going to do”*
 *-Code Complete *
+
 1. User can search through introspected data as well as flow through it's temporal nature if appropriate.
 2. Colorful and attractive visualizations that render within 3 seconds.
 3. Easily navigable options for customization.
