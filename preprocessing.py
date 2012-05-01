@@ -2,7 +2,6 @@ import re
 import string
 import glob
 
-from gensim.parsing.porter import PorterStemmer
 
 
 # improved list from Stone, Denis, Kwantes (2010)

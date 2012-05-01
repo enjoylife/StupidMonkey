@@ -2,6 +2,7 @@ from cherrypy.test.webtest import WebCase
 from enwrapper import *
 import unittest
 
+
 class TestApp(WebCase):
 
     @classmethod
@@ -30,6 +31,35 @@ class TestApp(WebCase):
         E.noteStore.expungeInactiveNotes(E.authToken)
 
 
+class TestEvernoteWrapper(unittest.TestCase):
+
+    def setUp(self):
+        pass
+
+    def test_creation(self):
+        pass
+
+def suite():
+    suite = unittest.TestSuite()
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    return suite
+d = """
+def test_lsa():
+    E = EvernoteInference(ENHOST, AUTHTOKEN)
+    corpus =  E.build()
+    for d in corpus.documents:
+        pass
+        #print d.terms
+    corpus.lsa = None
+    corpus.reduce(4)
+    print corpus.lsa.u
+
+    for concept in corpus.lsa.concepts:
+        print "NEW CONCEPT"
+        for word, weight in concept.items():
+            if abs(weight) > 0.1:
+                print word
+"""
+
 if __name__ == '__main__':
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestApp,)
-    unittest.TextTestRunner(verbosity=2).run(suite)
+    unittest.TextTestRunner(verbosity=1).run(suite())
