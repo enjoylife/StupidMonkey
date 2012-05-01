@@ -6,6 +6,7 @@ from Stemmer import Stemmer
 import simplejson as json
 import unicodedata
 
+
 def gen_stops():
     english_ignore = []
     with open('stoplist.txt',  'r') as stops:
@@ -29,27 +30,39 @@ def text_processer(document):
     container.update([x for x in ngrams(raw_strings,2,4)])
     return container
 
+STOPLIST =  gen_stops()
+
 class BasicXmlExtract(object):
 
     def __init__(self):
-        self.container = Counter()
-        self.stops = gen_stops()
         self.globs = []
 
     def data(self, data):
         self.globs.append(data)
+    def close(self):
+        data = self.globs
+        self.globs = []
+        return " ".join(data)
+        
+
+class TokenXmlExtract(object):
+
+    def __init__(self):
+        self.container = Counter()
+        self.globs = []
+
+    def data(self, data):
         data = unicodedata.normalize('NFKD',data).encode('ascii','ignore')
         self.globs.append(data)
         data = data.lower().split()
         if data:
             ## single word tokens 
-            self.container.update([d for d in data if d not in self.stops])
+            self.container.update([d for d in data if d not in STOPLIST])
             ## ngrams
             self.container.update([x for x in ngrams(tuple(data),2,2)])
 
     def close(self):
         return  self.container
-
 
 
 if __name__ == '__main__':

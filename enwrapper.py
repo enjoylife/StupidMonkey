@@ -15,9 +15,14 @@ import evernote.edam.type.ttypes as Types
 import evernote.edam.error.ttypes as Errors
 import evernote.edam.limits.constants as Limits
 
+from lxml import etree
+from helpers import BasicXmlExtract
+
+from pattern.vector import Document, Corpus, LEMMA
 
 __all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
         'en_userstore_setup', 'en_notestore_setup',
+        'NoteStore',
         'EvernoteConnector']
 
 # Once completed development, simply change "sandbox.evernote.com" to "www.evernote.com".
@@ -58,6 +63,8 @@ class EvernoteConnector(object):
     """ Basic class to connect to the evernote thrift api. 
     Naming convention of the public methods is to be pep8, while the
     inner vars be consistent with the already inplace thrift mixedCase.
+    TODO:
+        Error checking, alot of it.
     """
 
     def __init__(self, base_uri, note_url=None):
@@ -70,6 +77,8 @@ class EvernoteConnector(object):
             #TODO oauth handshake
             pass
         self.noteStore = en_notestore_setup(noteStoreUrl)
+
+    #### Public methods ####
 
     def get_notebooks(self, filter=None):
         """
@@ -86,85 +95,60 @@ class EvernoteConnector(object):
         
         return matchingNotebooks
 
-    @property
-    def defaultNotebook(self):
-        return self.noteStore.getDefaultNotebook(self.authToken)
-
-    @defaultNotebook.setter
-    def defaultNotebook(self,notebook):
-        #TODO implement changing of default notebook
-        pass
-
     def create_note(self, title, content, notebook=False):
-        note = self._newNote(notebook)
-        note.title = title
-        note.content = self.formatNoteContent(content)
+        note = Types.Note()
+        # cant contain extra whitespace
+        note.title = title.strip()
+        note.content = self._formatNoteContent(content)
+        if notebook is not False:
+            note.notebookGuid = notebook.guid
+        # evernote wants miliseconds. . . time return seconds
         note.created = int(time.time() * 1000)
         note.updated = note.created
+        return self.noteStore.createNote(self.authToken, note)
 
-        return self.noteToDic(
-                self.noteStore.createNote(self.authToken, note))
+    def delete_note(self, note):
+        return self.update_note(note, active=False, deleted=int(time.time()*1000))
 
-    def update_note(self, guid, title=False, content=False, notebook=False):
-        note = self._newNote(notebook)
-        note.guid = guid
+    def update_note(self, note, **kwargs):
 
-        #TODO fetch already existent title/content if not given
-        note.title = title
-        note.content = self._formatNoteContent(content)
+        for key, value in kwargs.iteritems():
+            setattr(note, key, value)
 
         note.updated = int(time.time() * 1000)
+        return self.noteStore.updateNote(self.authToken, note)
 
-        return self._noteToDic(
-                self.noteStore.updateNote(self.authToken, note))
-
-    def get_note_list(self, notebook=None):
-        return self._getNotes(notebook=notebook, list=True)
-
-    def get_notes(self, notes=False, notebook=None):
-        return self._getNotes(wantedNotes=notes, notebook=notebook, list=False)
-
-    def _noteToDic(self, note):
-         return {
-            "guid": note.guid,
-            "title": note.title,
-            "created": note.created,
-            "updated": note.updated,
-            "tags": note.tagNames
-        }
-
-    def _getNotes(self, wantedNotes=False, notebook=None, list=False):
+    def get_notes(self, notebook=None, list=False, inactive=False):
+        """ TODO: 
+        limits and offsets,
+        yeild whole content,
+        pass in whole filter
+        """
         filter = NoteStore.NoteFilter()
+        filter.inactive = inactive
         
         if notebook is not None:
             filter.notebookGuid = notebook.guid
-        else:
-            filter.notebookGuid = self.defaultNotebook.guid
 
         noteList = self.noteStore.findNotes(self.authToken, filter, 0, 9999)
-        notes = []
-
-        for note in noteList.notes:
-            if note.active is True:
-                #TODO add more properties 
-                if wantedNotes is False or\
-                    wantedNotes is not False and note.guid in wantedNotes:
-                    if list is False:
-                        note.content = self.noteStore.getNoteContent(
-                                self.authToken, note.guid)
-                        notes.append(note)
-        
-        return notes
-
-    def _newNote(self, notebook):
-        note = Types.Note()
-        
-        if notebook is not False:
-            note.notebookGuid = notebook.guid
+        if list:
+            return noteList
         else:
-            note.notebookGuid = self.defaultNotebook.guid
+            for note in noteList.notes:
+                note.content = self.noteStore.getNoteContent(self.authToken, note.guid)
+        return noteList.notes
 
-        return note
+
+    @property
+    def default_notebook(self):
+        return self.noteStore.getDefaultNotebook(self.authToken)
+
+    @default_notebook.setter
+    def default_notebook(self,notebook):
+        #TODO implement changing of default notebook
+        pass
+
+    ### Private methods ###
 
     def _formatNoteContent(self, innerContent):
         content = '<?xml version="1.0" encoding="UTF-8"?>'
@@ -173,6 +157,35 @@ class EvernoteConnector(object):
         content += '</en-note>'
         return content
 
+class EvernoteInference(EvernoteConnector):
+    
+    def __init__(self, base_uri, note_url=None):
+        EvernoteConnector.__init__(self, base_uri,note_url)
+
+    def build(self):
+        docs = []
+        parser = etree.HTMLParser(target=BasicXmlExtract())
+        for  note in self.get_notes():
+            data = etree.fromstring(note.content, parser)
+            docs.append(Document(data, stemmer=LEMMA))
+        self.corpus = Corpus(docs)
+        return self.corpus
+
+
 
 if __name__ == "__main__":
-    pass
+    E = EvernoteInference(ENHOST, AUTHTOKEN)
+    corpus =  E.build()
+    for d in corpus.documents:
+        pass
+        #print d.terms
+    corpus.lsa = None
+    corpus.reduce(4)
+    print corpus.lsa.u
+
+    for concept in corpus.lsa.concepts:
+        print "NEW CONCEPT"
+        for word, weight in concept.items():
+            if abs(weight) > 0.1:
+                print word
+     

@@ -1,9 +1,9 @@
 from cherrypy.test.webtest import WebCase
+from enwrapper import *
 import unittest
 
 class TestApp(WebCase):
 
-    
     @classmethod
     def setUpClass(cls):
         pass
@@ -13,12 +13,21 @@ class TestApp(WebCase):
         pass
 
     def setUp(self):
-        ## called for ever test
         pass
 
     def test_something(self):
         pass
 
+    def _test_evernote_note(self):
+        """ test evernote connector """
+        E = EvernoteConnector(ENHOST, AUTHTOKEN)
+        #creation
+        note = E.create_note('Test Note', "A really Cool Test Note")
+        self.assertEqual('Test Note', note.title)
+        #deletion
+        note = E.delete_note(note)
+        self.assertEqual(False, note.active)
+        E.noteStore.expungeInactiveNotes(E.authToken)
 
 
 if __name__ == '__main__':

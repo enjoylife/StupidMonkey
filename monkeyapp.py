@@ -2,7 +2,7 @@
 import os.path
 # Text processing
 from lxml import etree
-from helpers import  ngrams, gen_stops, BasicXmlExtract
+from helpers import  ngrams, gen_stops, TokenXmlExtract
 
 #evernote
 from enwrapper import *
@@ -36,7 +36,7 @@ class EnInfer(object):
         """ shows word counts of users data """ 
         # we have all the required en_thrift crap, lets put it to use
         emptyfilter = NoteStore.NoteFilter(filter)
-        parser = etree.HTMLParser(target=BasicXmlExtract())
+        parser = etree.HTMLParser(target=TokenXmlExtract())
         notes = self.note_store.findNotes(AUTHTOKEN,emptyfilter,0,Limits.EDAM_USER_NOTES_MAX)
         for n in notes.notes:
             data = self.note_store.getNoteContent(AUTHTOKEN,n.guid)
@@ -48,8 +48,6 @@ class EnInfer(object):
     def topic(self, num=50, filter=None):
         """ Shows infered topics from users data """
         emptyfilter = NoteStore.NoteFilter(filter)
-
-
 
 ########################################
 ### Cherrypy Custom Tools and Hooks ####
@@ -66,8 +64,7 @@ def bson_json_handler(*args, **kwargs):
 
 
 root = Welcome()
-root.stats = EnInfer(AUTHTOKEN)
-root.evernote = EnApi(AUTHTOKEN)
+root.data = EnInfer(AUTHTOKEN)
 
 
 conf = {
@@ -83,10 +80,10 @@ conf = {
         'tools.staticdir.dir':'static',
         },
     '/evernote': {
+        #'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
         'tools.json_out.on' : True ,
     },
     '/data': {
-        'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
         'tools.json_out.on' : True ,
         'tools.json_out.handler' : bson_json_handler,
     }
