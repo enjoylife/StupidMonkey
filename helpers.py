@@ -6,6 +6,41 @@ from Stemmer import Stemmer
 import simplejson as json
 import unicodedata
 
+def mongo_connect(name,extra=False):
+    """ 
+    Connect to a MongoDB database, and write to stdio if failure. 
+    Returns: the database handle
+    Params: 
+        name: the database name to connect to EX: test
+
+    """
+    try:
+        #global connection
+        connection = Connection()
+        #database connection 
+        db = connection[name]
+        if extra:
+            sys.stdout.write(" ** MongoDB connected to %s **\n" % name)
+
+        # Good time to ensure that we have fast indexs, or should I wait?? 
+        #db.users.ensureIndex({'username':1}, {unique: True})
+        return db
+    except ConnectionFailure, e:
+        sys.stderr.write("Could Not connect to MongoDB: %s\n" %e)
+        sys.exit(1)
+
+def redis_connect():
+    """ 
+    Connect to a Redis instance, and write to stdio if failure. 
+    """
+    try:
+        r = redis.StrictRedis(host='localhost', port=6379, db=0)
+        r.ping()
+        sys.stdout.write(" ** Redis connected **\n")
+    except ConnectionError, e:
+        sys.stderr.write("Could note connect to Redis: %s\n" %e)
+        sys.exit(1)
+
 def gen_stops():
     english_ignore = []
     with open('stoplist.txt',  'r') as stops:
