@@ -75,6 +75,7 @@ class EvernoteConnector(object):
     Naming convention of the public methods is to be pep8, while the
     inner /methods/properties be consistent with the already inplace thrift mixedCase, to help distinguish between handwritten code.
     TODO:
+http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
         Error checking, alot of it, that's the whole reseason behind the verbose
         method calling.
     """
@@ -249,13 +250,14 @@ class EvernoteMongoSync(EvernoteConnector):
         """
 
         user_scaffold =  {
-            '_id_evernote_user': self.user.id,
+            '_id': self.user.id,
             '_id_notes':[],
             'tags':[],
             'notebooks':[],
             }
-        self.mongo.user.insert(user_scaffold)
-        ## now lets add the content in
+        # create the skeletn
+        user_id = self.mongo.user.insert(user_scaffold)
+        ## now lets  go through the iterable of different types   and update 
         for new_stuff in self.yield_sync():
             notes =[]
             tags = []
@@ -263,20 +265,34 @@ class EvernoteMongoSync(EvernoteConnector):
             for note in self.yeild_notelist_content(new_stuff.notes):
                 ## dont want to store inactive things
                 if note.active is not False:
-                n = { '_guid':note.guid, 'str_title':note.title,
-                        'str_data':note.content, '_guid_tags':note.tags,
-                        '_guid_notebook':note.notebookGuid}
+                n = { '_id':note.guid, '__id_user':user_id, 
+                        '_id_notebook':note.notebookGuid,
+                        'str_title':note.title,'_id_tags':note.tags,
+                        'str_data':note.content, 
+                        }
                 notes.append(n)
-
-            self.mongo.notes.insert(notes)
+            # we need this seperate collection 
+            # the __id vs a _id 
+            # __id reference a parent
+            # _id_thing reference a child
             for tag in new_stuff.tags:
-                t = {'_guid':tag.guid, 'str_name':tag.name}
+                t = {'_id':tag.guid, 'str_name':tag.name}
                 tags.append(t)
-            self.mongo.tags.insert(tags)
             for notebook in new_stuff.notebooks:
-                n = {'_guid':notebook.guid, 'str_name':notebook.name}
+                n = {'_id':notebook.guid, 'str_name':notebook.name}
                 notebooks.append(n)
-            self.mongo.notebooks.insert(notebooks)
+
+             # insert the  note in its own collection. maybe large note data string?
+             notes_id = self.mongo.notes.insert(notes)
+             ## update the single user's note list with the new notes_id 
+             self.mongo.users.update({'_id': user_id}, 
+                     {"$pushAll":{'_id_notes': notes_id}})
+             # update the user's tag list with the actuall tags
+             self.mongo.users.update({'_id':user_id},
+                     {{"$pushAll":{'tags':tags}})
+             # update the user's notebook list with the actuall notebooks
+             self.mongo.users.update({'_id':user_id},
+                     {{"$pushAll":{'notebooks':notebooks}})
 
     def update_user_db(self):
         pass
