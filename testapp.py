@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from coverage import coverage
+#from coverage import coverage
 import unittest
 from cherrypy.test.webtest import WebCase
-cov = coverage(source = ['enwrapper.py'])
-cov.start()
+#cov = coverage(source = ['enwrapper.py'])
+#cov.start()
 from enwrapper import *
 from database import mongo,  User, Goal
 
-import evernote.edam.type.ttypes as Types
+#import evernote.edam.type.ttypes as Types
 
 testuser = {u'first_name': u'Matthew', u'last_name': u'Clemens', u'middle_name': u'Donavan', u'name': u'Matthew Donavan Clemens', u'locale': u'en_US', u'gender': u'male', u'link': u'http://www.facebook.com/people/Matthew-Donavan-Clemens/100000220742923', u'id': u'100000220742923'}
 
@@ -41,8 +41,7 @@ class TestApp(WebCase):
         self.assertEqual(False, note.active)
         E.noteStore.expungeInactiveNotes(E.authToken)
 
-
-class TestMongo(unittest.TestCase):
+class TestMongoAPI(unittest.TestCase):
     
     @classmethod
     def setUpClass(cls):
@@ -50,7 +49,8 @@ class TestMongo(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        mongo.connection.drop_database('test')
+        mongo.users.drop()
+        mongo.goals.drop()
 
     def setUp(self):
         mongo.users.remove()
@@ -107,10 +107,16 @@ class TestEvernoteWrapper(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.en = EvernoteConnector(ENHOST, AUTHTOKEN)
+        cls.en = EvernoteConnector(ENHOST, AUTHTOKEN, mongo)
+        for note in cls.en.get_notelist(intial=1).notes:
+            cls.en.delete_note(note)
+        cls.en.empty_trash()
     @classmethod
     def tearDownClass(cls):
-        mongo.connection.drop_database('test')
+        #mongo.connection.drop_database('test')
+        mongo.users.drop()
+        mongo.notes.drop()
+        # keep first test note
         for note in cls.en.get_notelist(intial=1).notes:
             cls.en.delete_note(note)
         cls.en.empty_trash()
@@ -125,9 +131,64 @@ class TestEvernoteWrapper(unittest.TestCase):
         self.assertIn('this is the body',self.en.get_note_content(note))
         self.assertIsNotNone(note.guid)
         self.en.delete_note(note)
-
         ### TODO: test for copying and different updating 
         self.assertEqual(1, self.en.get_notelist().totalNotes)
+
+        note = self.en.create_note('first test note', 'this is the body of the stuff')
+        newnote = self.en.update_note(note,content='new test body', title='a new title')
+        self.assertIn('new test body', self.en.get_note_content(note))
+        self.assertEqual('a new title',newnote.title)
+        self.en.delete_note(newnote)
+        self.assertEqual(1, self.en.get_notelist().totalNotes)
+
+    def test_syncing_intial(self):
+        note = self.en.create_note('test', 'this is the body of test')
+        
+        self.en.initialize_db()
+        self.assertEqual(False, self.en.need_sync)
+        self.assertEqual(1, mongo.users.find().count())
+        self.assertEqual(2, mongo.notes.find().count())
+        self.assertEqual(1, mongo.notes.find({'_id':note.guid}).count())
+        self.assertIsNotNone(mongo.notes.find_one({'_id':note.guid}))
+
+        n = self.en.update_note(note, content='NEW')
+        self.assertEqual(n.guid,note.guid)
+        self.assertIsNot(n, note)
+        self.assertTrue( self.en.need_sync)
+
+        self.assertIn('this is the body of test',
+                mongo.notes.find_one({'_id':n.guid})['str_data'])
+        self.assertIn('this is the body of test',
+                mongo.notes.find_one({'_id':note.guid})['str_data'])
+        self.assertIsNotNone(mongo.users.find_one({'_id_notes':note.guid}))
+
+    def test_syncing_resync(self):
+        #  new thing,  simple update
+        self.assertEqual(True, self.en.need_sync)
+        note = self.en.create_note('test2', 'this is the body of test 2')
+        #self.assertEqual(3, self.en.get_notelist().totalNotes)
+        self.assertFalse(mongo.users.find_one({'_id_notes':note.guid}))
+        self.en.resync_db()
+        self.assertTrue(mongo.users.find_one({'_id_notes':note.guid}))
+        self.assertIn(note.guid,
+                mongo.users.find_one({'_id_notes':note.guid})['_id_notes'])
+        # is it updated in the note collection too?
+        self.assertTrue(mongo.notes.find_one({'_id':note.guid}))
+
+        # same thing but updated
+        n = self.en.update_note(note, content="NEW")
+        old = mongo.notes.find_one({'_id':n.guid})
+        self.assertEqual(True, self.en.need_sync)
+        # should be unsynced
+        self.assertNotEqual(old['str_data'], self.en.get_note_content(note))
+
+        self.en.resync_db()
+        # now we should be back again
+        mongonote = mongo.notes.find_one({'_id':note.guid})
+        self.assertEqual(mongonote['str_data'], self.en.get_note_content(n))
+
+
+
        
     def test_evernote_querying(self):
         pass
@@ -136,9 +197,9 @@ def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongo))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())
-    cov.stop()
-    cov.report()
+    #cov.stop()
+    #cov.report()
