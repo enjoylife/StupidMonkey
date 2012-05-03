@@ -13,7 +13,6 @@ from database import mongo,  User, Goal
 testuser = {u'first_name': u'Matthew', u'last_name': u'Clemens', u'middle_name': u'Donavan', u'name': u'Matthew Donavan Clemens', u'locale': u'en_US', u'gender': u'male', u'link': u'http://www.facebook.com/people/Matthew-Donavan-Clemens/100000220742923', u'id': u'100000220742923'}
 
 
-
 class TestApp(WebCase):
 
     @classmethod
@@ -107,7 +106,7 @@ class TestEvernoteWrapper(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.en = EvernoteConnector(ENHOST, AUTHTOKEN, mongo)
+        cls.en = EvernoteProfileInferer(ENHOST, AUTHTOKEN, mongo)
         for note in cls.en.get_notelist(intial=1).notes:
             cls.en.delete_note(note)
         cls.en.empty_trash()
@@ -157,9 +156,9 @@ class TestEvernoteWrapper(unittest.TestCase):
         self.assertTrue( self.en.need_sync)
 
         self.assertIn('this is the body of test',
-                mongo.notes.find_one({'_id':n.guid})['str_data'])
+                mongo.notes.find_one({'_id':n.guid})['str_content'])
         self.assertIn('this is the body of test',
-                mongo.notes.find_one({'_id':note.guid})['str_data'])
+                mongo.notes.find_one({'_id':note.guid})['str_content'])
         self.assertIsNotNone(mongo.users.find_one({'_id_notes':note.guid}))
 
     def test_syncing_resync(self):
@@ -180,12 +179,54 @@ class TestEvernoteWrapper(unittest.TestCase):
         old = mongo.notes.find_one({'_id':n.guid})
         self.assertEqual(True, self.en.need_sync)
         # should be unsynced
-        self.assertNotEqual(old['str_data'], self.en.get_note_content(note))
+        self.assertNotEqual(old['str_content'], self.en.get_note_content(note))
 
         self.en.resync_db()
         # now we should be back again
         mongonote = mongo.notes.find_one({'_id':note.guid})
-        self.assertEqual(mongonote['str_data'], self.en.get_note_content(n))
+        self.assertEqual(mongonote['str_content'], self.en.get_note_content(n))
+
+    def test_analytic_word_count(self):
+        note = self.en.create_note('test2', 'this is the body of test 2')
+        note = self.en.create_note('test5', 'this is the body of test 5')
+        self.en.resync_db()
+        self.en.word_count()
+
+
+
+
+       
+    def test_evernote_querying(self):
+        pass
+
+class TestEvernoteAnalytic(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.en = EvernoteProfileInferer(ENHOST, AUTHTOKEN, mongo)
+        for note in cls.en.get_notelist(intial=1).notes:
+            cls.en.delete_note(note)
+        cls.en.empty_trash()
+
+    @classmethod
+    def tearDownClass(cls):
+        #mongo.connection.drop_database('test')
+        mongo.users.drop()
+        mongo.notes.drop()
+        # keep first test note
+        for note in cls.en.get_notelist(intial=1).notes:
+            cls.en.delete_note(note)
+        cls.en.empty_trash()
+
+
+    def test_analytic_word_count(self):
+        note = self.en.create_note('test2', 'this is the body of test 2')
+        note = self.en.create_note('test5', 'this is the body of test 5')
+        note = self.en.create_note('test5', 'this is the body of test 5')
+        note = self.en.create_note('test5', 'this is the body of test 5')
+        self.en.initialize_db()
+        self.en.word_count()
+
 
 
 
@@ -195,7 +236,8 @@ class TestEvernoteWrapper(unittest.TestCase):
 
 def suite():
     suite = unittest.TestSuite()
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
+    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
     return suite

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 import sys
-from time import time
+import string
 from collections import Counter
 from Stemmer import Stemmer
-import simplejson as json
 import unicodedata
 
 def mongo_connect(name,extra=False):
@@ -43,7 +42,7 @@ def redis_connect():
 
 def gen_stops():
     english_ignore = []
-    with open('stoplist.txt',  'r') as stops:
+    with open('bigstoplist.txt',  'r') as stops:
         for word in stops:
             english_ignore.append(word.strip())
     return frozenset(english_ignore)
@@ -54,28 +53,30 @@ def ngrams(tokens, MIN_N, MAX_N):
         for j in xrange(i+MIN_N, min(n_tokens, i+MAX_N)+1):
             yield " ".join(tokens[i:j])
 
-def text_processer(document):
+TABLE = string.maketrans("","")
+STOPLIST =  gen_stops()
+STEMMER = Stemmer('english')
+
+def text_processer(doc,punc=True):
     """ Alot of python magic and helpers in this list comprehension
      If this is one area where a more precise C implementation would be amazing
      but more work."""
-    raw_strings = document.lower().split()
-    print type(raw_strings)
-    container = Counter(raw_strings)
-    container.update([x for x in ngrams(raw_strings,2,4)])
-    return container
-
-STOPLIST =  gen_stops()
+    doc = unicodedata.normalize('NFKD',doc).encode('ascii','ignore')
+    if  not punc:
+        doc = doc.translate(TABLE, string.punctuation)
+    return Counter([x for x in ngrams((doc.lower().split()),1,2) if x not in STOPLIST])
 
 class BasicXmlExtract(object):
 
     def __init__(self):
-        self.globs = []
+        self.glob = []
 
     def data(self, data):
-        self.globs.append(data)
+        self.glob.append(data)
+
     def close(self):
-        data = self.globs
-        self.globs = []
+        data = self.glob
+        self.glob = []
         return " ".join(data)
         
 class TokenXmlExtract(object):
@@ -193,5 +194,8 @@ class ProfileInferer(object):
         pass
 
 if __name__ == '__main__':
-    pass
-
+    test = u""" Alot of python magic and helpers in this list comprehension
+     If this is one area where a more precise C implementation would be amazing
+     but more work. Matthew's c$$l looking #beast $mode."""
+    print text_processer(test,False)
+    print text_processer(test,)

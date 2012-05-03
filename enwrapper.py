@@ -2,6 +2,7 @@
 import sys
 import time
 import re
+from collections import Counter
 
 #evernote Thrift protocol
 import thrift.protocol.TBinaryProtocol as TBinaryProtocol
@@ -14,11 +15,11 @@ import evernote.edam.type.ttypes as Types
 import evernote.edam.error.ttypes as Errors
 import evernote.edam.limits.constants as Limits
 
-from helpers import BasicXmlExtract
+from helpers import BasicXmlExtract, text_processer
 
 from lxml import etree
 
-from pattern.vector import Document, Corpus, LEMMA
+from pattern.vector import Corpus
 
 from pymongo import Connection 
 from bson import json_util
@@ -27,7 +28,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 __all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
         'en_userstore_setup', 'en_notestore_setup',
         'NoteStore',
-        'EvernoteConnector',]
+        'EvernoteConnector','EvernoteProfileInferer']
 
 # Once completed development, simply change "sandbox.evernote.com" to "www.evernote.com".
 ENHOST = "sandbox.evernote.com"
@@ -72,12 +73,22 @@ def en_notestore_setup(user_note_store_url):
 ############
 
 class EvernoteConnector(object):
-    """ Basic class to  ease the connection to the evernote thrift api. 
-    Naming convention of the public methods is to be pep8, while the
-    inner /methods/properties be consistent with the already inplace thrift mixedCase, to help distinguish between handwritten code.
+    """ This is to ease the connection to the evernote thrift api, and provide a
+    cache layer for reducing calls to the Evernote servers.
+
+    Naming convention of the public methods is to be pep8, which is  
+    to help distinguish between the layers of this class and the thrift
+    generated classes.
+
+    Local cache stores for a single user the notebooks and tags wihin an
+    embedded doc, and keeps note guid references in a _id_notes list. The note
+    collection itself is stored seperatly and contains the title (str_title),
+    notebook guid (_id_notebook), tags (_id_tags), and it's content (str_content).
+
     TODO:
         Error checking, alot of it, that's the whole reseason behind the verbose
         method calling.
+        Extract word tokens on syncs.
     """
 
     def __init__(self, base_uri, note_url, mongohandle):
@@ -120,7 +131,7 @@ class EvernoteConnector(object):
         #TODO implement changing of default notebook
         pass
 
-    ### Editing ###
+    ### Editing/Helpers ###
 
     def create_note(self, title, content , **kwargs):
         """ Helper to create an evernote note"""""
@@ -162,6 +173,16 @@ class EvernoteConnector(object):
                 self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX)
         return note_list 
 
+    def get_notelist_meta(self, intial = 0, filter_dic=None):
+        filter = NoteStore.NoteFilter(filter_dic)
+        resultSpec = NoteStore.NotesMetadataResultSpec(
+                includeTitle=True,includeNotebookGuid=True, includeTagGuids=True)
+        
+        note_list =  self.note_client.findNotesMetadata(
+                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX,
+                resultSpec)
+        return note_list 
+
     def get_note_content(self, note):
         return self.note_client.getNoteContent(self.auth_token, note.guid)
 
@@ -174,16 +195,6 @@ class EvernoteConnector(object):
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
 
-    def yield_notelist_data(self, notelist):
-        """Helper to keep huge note contents out of memory.
-        Uses the xml extractor to parse the data. 
-        TODO: 
-        limits and offsets, yeild whole content, pass in whole filter
-        """
-        parser = etree.HTMLParser(target=BasicXmlExtract())
-        for note in note_list.notes:
-                note.content = etree.fromstring(self.note_client.getNoteContent(self.auth_token, note.guid), parser)
-                yield note
 
     def yield_note_content(self, intial=0, filter_dic=None):
         """ TODO: 
@@ -196,9 +207,21 @@ class EvernoteConnector(object):
         for note in note_list.notes:
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
+
+    def yield_note_content_meta(self, intial=0, filter_dic=None):
+        """ TODO: 
+        limits and offsets, yeild whole content, pass in whole filter
+        """
+        filter = NoteStore.NoteFilter(filter_dic)
+        
+        note_list =  self.get_note_list_meta(intial,filter_dic)
+        for note in note_list.notes:
+                note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
+                yield note
     
     ### Syncing ###
-    # used for reducing resource and process time from Analytics
+    # used for reducing resource and process time for Analytics
+
     def yield_sync(self,expunged=False ,intial=0):
         """ Gathers any  content for this class to use """
         more = True
@@ -215,8 +238,71 @@ class EvernoteConnector(object):
                 self.last_updated = new_stuff.currentTime
             yield new_stuff
 
+    def initialize_db(self):
+        """ Performs the intial content gathering when the database
+        encounters an unseen user.
+        Returns the _id for the new user
+        """
+        parser = etree.HTMLParser(target=BasicXmlExtract())
+        # already have a user just rsync
+        if self.mongo.users.find_one({'_id':self.user_id},{}):
+            return self.resync_db()
+
+        user_scaffold =  {
+            '_id': self.user.id,
+            '_id_notes':[],
+            'tags':[],
+            'notebooks':[],
+            }
+        # create the skeletn
+        user_id = self.mongo.users.insert(user_scaffold)
+        ## now lets  go through the iterable of different types   and update 
+        for new_stuff in self.yield_sync():
+
+            notes =[]
+            tags = []
+            notebooks = []
+            
+            if new_stuff.notes:
+                for note in self.yield_notelist_content(new_stuff):
+                    ## dont want to store inactive things
+                    if note.active:
+                        ## Parsing data into token counts ##
+                        data = etree.fromstring(note.content, parser)
+
+                        n = { '_id':note.guid, '__id_user':user_id, 
+                            '_id_notebook':note.notebookGuid,
+                            'str_title':note.title,'_id_tags':note.tagGuids,
+                            'str_content':note.content, 
+                            'tokens': text_processer(data),
+                            }
+                        notes.append(n)
+                # insert the  note in its own collection because maybe large note data string?
+                notes_id = self.mongo.notes.insert(notes)
+                ## update the single user's note list with the new notes_id 
+                self.mongo.users.update({'_id': user_id}, 
+                         {"$pushAll":{'_id_notes': notes_id}})
+
+            if new_stuff.tags:
+                for tag in new_stuff.tags:
+                    t = {'_id':tag.guid, 'str_name':tag.name}
+                    tags.append(t)
+
+                # update the user's tag list with the embeded tags
+                self.mongo.users.update({'_id':user_id},
+                     {"$pushAll":{'tags':tags}})
+
+            if new_stuff.notebooks:
+                for notebook in new_stuff.notebooks:
+                    n = {'_id':notebook.guid, 'str_name':notebook.name}
+                    notebooks.append(n)
+                # update the user's notebook list with the actuall notebooks
+                self.mongo.users.update({'_id':user_id},
+                     {"$pushAll":{'notebooks':notebooks}})
+
     def resync_db(self):
         """ Performs the syncing if we already have initialized """
+        parser = etree.HTMLParser(target=BasicXmlExtract())
         for new_stuff in self.yield_sync(True, self.latest_usn):
 
             if new_stuff.expungedTags:
@@ -243,10 +329,12 @@ class EvernoteConnector(object):
                     ## dont want to store inactive things
                     if not note.active:
                         inactive_notes.append(note.guid)
+                    data = etree.fromstring(note.content, parser)
                     n = { '_id':note.guid, '__id_user':self.user_id, 
                         '_id_notebook':note.notebookGuid,
                         'str_title':note.title,'_id_tags':note.tagGuids,
-                        'str_data':note.content, 
+                        'str_content':note.content, 
+                        'tokens' :text_processer(data),
                         }
                     self.mongo.notes.update({'_id':note.guid},n,  upsert=True)
                     new_notes.append(note.guid)
@@ -273,64 +361,6 @@ class EvernoteConnector(object):
                     n = {'_id':notebook.guid, 'str_name':notebook.name}
                     # insert or full change of the embedded tag doc
                     self.mongo.users.update({'notebooks._id':notebook.guid},n,upsert=True)
-
-            
-    def initialize_db(self):
-        """ Performs the intial content gathering when the database
-        encounters an unseen user.
-        Returns the _id for the new user
-        """
-        # already have a user just rsync
-        if self.mongo.users.find_one({'_id':self.user_id},{}):
-            return self.resync_db()
-
-        user_scaffold =  {
-            '_id': self.user.id,
-            '_id_notes':[],
-            'tags':[],
-            'notebooks':[],
-            }
-        # create the skeletn
-        user_id = self.mongo.users.insert(user_scaffold)
-        ## now lets  go through the iterable of different types   and update 
-        for new_stuff in self.yield_sync():
-
-            notes =[]
-            tags = []
-            notebooks = []
-            
-            if new_stuff.notes:
-                for note in self.yield_notelist_content(new_stuff):
-                    ## dont want to store inactive things
-                    if note.active:
-                        n = { '_id':note.guid, '__id_user':user_id, 
-                            '_id_notebook':note.notebookGuid,
-                            'str_title':note.title,'_id_tags':note.tagGuids,
-                            'str_data':note.content, 
-                            }
-                        notes.append(n)
-                # insert the  note in its own collection because maybe large note data string?
-                notes_id = self.mongo.notes.insert(notes)
-                ## update the single user's note list with the new notes_id 
-                self.mongo.users.update({'_id': user_id}, 
-                         {"$pushAll":{'_id_notes': notes_id}})
-
-            if new_stuff.tags:
-                for tag in new_stuff.tags:
-                    t = {'_id':tag.guid, 'str_name':tag.name}
-                    tags.append(t)
-
-                # update the user's tag list with the embeded tags
-                self.mongo.users.update({'_id':user_id},
-                     {"$pushAll":{'tags':tags}})
-
-            if new_stuff.notebooks:
-                for notebook in new_stuff.notebooks:
-                    n = {'_id':notebook.guid, 'str_name':notebook.name}
-                    notebooks.append(n)
-                # update the user's notebook list with the actuall notebooks
-                self.mongo.users.update({'_id':user_id},
-                     {"$pushAll":{'notebooks':notebooks}})
 
     def update_user_db(self):
         pass
@@ -363,15 +393,6 @@ class EvernoteConnector(object):
         content += '</en-note>'
         return content
     
-def build(self):
-    docs = []
-    parser = etree.HTMLParser(target=BasicXmlExtract())
-    for  note in self.get_notes():
-        data = etree.fromstring(note.content, parser)
-        docs.append(Document(data, stemmer=LEMMA))
-    self.corpus = Corpus(docs)
-    return self.corpus
-
 ### Analytic Class for infering things ###
 class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info
@@ -389,8 +410,8 @@ class EvernoteProfileInferer(EvernoteConnector):
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
     """ 
 
-    def __init__(self, base_uri, note_url=None):
-        EvernoteConnector.__init__(self,base_uri, note_url)
+    def __init__(self, base_uri, note_url, mongohandle):
+        EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
 
     def topic_summary(self, docs):
         """ Returns what are the main features that make up this topic.
@@ -402,13 +423,21 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         pass
 
-    def word_count(self, word_container):
+    def word_count(self, note_filter=None):
         """ Counts the total number of words in some sort of content of 
         a user's profile. 
         Ideas:
             By time, cluster and not just a single object?
         """
-        pass
+
+        c = Counter()
+        meta_list = [x.guid for x in self.get_notelist_meta(note_filter).notes]
+        print meta_list
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
+            c.update(x['tokens'])
+        return c
+
+
     
     def readability(self, doc):
         """ Computes a score based upon what an douchebag would mark you

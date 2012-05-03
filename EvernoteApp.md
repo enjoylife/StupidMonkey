@@ -46,16 +46,12 @@ Analytic processing will be done with effective easy to develop  machine learnin
 * __Time Based__
   * wordcount
   * grammer level or readability metric
-  * word importance
-    * nouns, verbs, etc...
+  * word importance: nouns, verbs, etc...
   * topic summaries
 * __Non Time Based__
-  * comparing between...
-    * notes, tags, notebooks
-  * outside knowledge
-    * querying: wikipedia, duckduckgo, freebase...
+  * comparing between: notes, tags, notebooks
+  * outside knowledge: querying wikipedia, duckduckgo, freebase...
 * __Other__
   * wordcounts
-  * averages 
-    * note length, time deltas of new notes, 
+  * averages: note length, time deltas of new notes, 
   * top note taking locations
