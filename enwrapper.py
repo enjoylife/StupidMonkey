@@ -80,10 +80,10 @@ class EvernoteConnector(object):
     to help distinguish between the layers of this class and the thrift
     generated classes.
 
-    Local cache stores for a single user the notebooks and tags wihin an
-    embedded doc, and keeps note guid references in a _id_notes list. The note
-    collection itself is stored seperatly and contains the title (str_title),
-    notebook guid (_id_notebook), tags (_id_tags), and it's content (str_content).
+    Local cache stores for a single user the it's guid. The note
+    collection itself is stored seperatly and contains the owners guid,
+    (_id_user), title (str_title), notebook guid (_id_notebook), tags (_id_tags),
+    and it's content (str_content).
 
     TODO:
         Error checking, alot of it, that's the whole reseason behind the verbose
@@ -112,26 +112,11 @@ class EvernoteConnector(object):
         self._default = False
         self._user= False
 
-    #### Public methods ####
-    ########################
-
     @property
     def user(self):
         return self.user_client.getUser(self.auth_token)
 
-
-    @property
-    def default_notebook(self):
-        if not self._default:
-            self._default = self.noteStore.getDefaultNotebook(self.auth_token)
-        return self._default
-
-    @default_notebook.setter
-    def default_notebook(self,notebook):
-        #TODO implement changing of default notebook
-        pass
-
-    ### Editing/Helpers ###
+    ### Editing / Testing Helpers ###
 
     def create_note(self, title, content , **kwargs):
         """ Helper to create an evernote note"""""
@@ -155,16 +140,16 @@ class EvernoteConnector(object):
     def delete_note(self, note):
         return self.update_note(note, active=False, deleted=int(time.time()*1000))
 
-    def create_notebok(self, name, **kwargs):
-        return self.note_client.createNotebook(Types.Notebook(name=name, **kwargs))
-
     def get_trash_notes(self):
-        return self.yield_note_list_content(self.get_notelist(inactive=True))
+        return self.yield_note_list_content(self.get_notelist(0, inactive=True))
 
     def empty_trash(self):
         self.note_client.expungeInactiveNotes(self.auth_token)
 
     ### Querying ###
+
+    def get_note_content(self, note):
+        return self.note_client.getNoteContent(self.auth_token, note.guid)
 
     def get_notelist(self, intial = 0, filter_dic=None):
         filter = NoteStore.NoteFilter(filter_dic)
@@ -183,34 +168,27 @@ class EvernoteConnector(object):
                 resultSpec)
         return note_list 
 
-    def get_note_content(self, note):
-        return self.note_client.getNoteContent(self.auth_token, note.guid)
+    def get_notelist_guid_only(self, intial = 0, filter_dic=None):
+        filter = NoteStore.NoteFilter(filter_dic)
+        resultSpec = NoteStore.NotesMetadataResultSpec()
+        
+        note_list =  self.note_client.findNotesMetadata(
+                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX,
+                resultSpec)
+        return note_list 
 
     def yield_notelist_content(self, note_list):
         """Helper to keep huge note contents out of memory.
         TODO: 
         limits and offsets, yeild whole content, pass in whole filter
         """
-        for note in note_list.notes:
-                note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
-                yield note
-
-
-    def yield_note_content(self, intial=0, filter_dic=None):
-        """ TODO: 
-        limits and offsets, yeild whole content, pass in whole filter
-        """
-        filter = NoteStore.NoteFilter(filter_dic)
-        
-        note_list =  self.note_client.findNotes(
-                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX)
-        for note in note_list.notes:
+        for note in note_list:
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
 
     def yield_note_content_meta(self, intial=0, filter_dic=None):
-        """ TODO: 
-        limits and offsets, yeild whole content, pass in whole filter
+        """ Yields a  note plus content from a meta data object that has the
+        notebooks, and tag guids as well as title 
         """
         filter = NoteStore.NoteFilter(filter_dic)
         
@@ -226,7 +204,7 @@ class EvernoteConnector(object):
         """ Gathers any  content for this class to use """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
-                includeNotes=True, includeTags=True,includeNotebooks=True)
+                includeNotes=True )
         while more:
             new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token,intial,
                     1000,filter)
@@ -250,9 +228,6 @@ class EvernoteConnector(object):
 
         user_scaffold =  {
             '_id': self.user.id,
-            '_id_notes':[],
-            'tags':[],
-            'notebooks':[],
             }
         # create the skeletn
         user_id = self.mongo.users.insert(user_scaffold)
@@ -260,17 +235,15 @@ class EvernoteConnector(object):
         for new_stuff in self.yield_sync():
 
             notes =[]
-            tags = []
-            notebooks = []
             
             if new_stuff.notes:
-                for note in self.yield_notelist_content(new_stuff):
+                for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if note.active:
                         ## Parsing data into token counts ##
                         data = etree.fromstring(note.content, parser)
 
-                        n = { '_id':note.guid, '__id_user':user_id, 
+                        n = { '_id':note.guid, '_id_user':user_id, 
                             '_id_notebook':note.notebookGuid,
                             'str_title':note.title,'_id_tags':note.tagGuids,
                             'str_content':note.content, 
@@ -279,53 +252,21 @@ class EvernoteConnector(object):
                         notes.append(n)
                 # insert the  note in its own collection because maybe large note data string?
                 notes_id = self.mongo.notes.insert(notes)
-                ## update the single user's note list with the new notes_id 
-                self.mongo.users.update({'_id': user_id}, 
-                         {"$pushAll":{'_id_notes': notes_id}})
-
-            if new_stuff.tags:
-                for tag in new_stuff.tags:
-                    t = {'_id':tag.guid, 'str_name':tag.name}
-                    tags.append(t)
-
-                # update the user's tag list with the embeded tags
-                self.mongo.users.update({'_id':user_id},
-                     {"$pushAll":{'tags':tags}})
-
-            if new_stuff.notebooks:
-                for notebook in new_stuff.notebooks:
-                    n = {'_id':notebook.guid, 'str_name':notebook.name}
-                    notebooks.append(n)
-                # update the user's notebook list with the actuall notebooks
-                self.mongo.users.update({'_id':user_id},
-                     {"$pushAll":{'notebooks':notebooks}})
 
     def resync_db(self):
         """ Performs the syncing if we already have initialized """
         parser = etree.HTMLParser(target=BasicXmlExtract())
         for new_stuff in self.yield_sync(True, self.latest_usn):
 
-            if new_stuff.expungedTags:
-                # update users embedded docs
-                self.mongo.users.update({'_id':self.user_id},{'$pullAll': 
-                    {'tags':[{'_id':n} for n in new_stuff.expungedTags]}})
-
-            if new_stuff.expungedNotebooks:
-                # update users embedded docs
-                self.mongo.users.update({'_id':self.user_id},{'$pullAll':
-                    {'notebooks':[{'_id':n} for n in new_stuff.expungedNotebooks]}})
-
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
-                self.mongo.users.update({'_id':self.user_id},{'$pullAll': 
-                        {'_id_notes': inactive_notes}})
                 # collection 
                 self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
 
             if new_stuff.notes:
                 new_notes = []
                 inactive_notes =[]
-                for note in self.yield_notelist_content(new_stuff):
+                for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if not note.active:
                         inactive_notes.append(note.guid)
@@ -338,29 +279,9 @@ class EvernoteConnector(object):
                         }
                     self.mongo.notes.update({'_id':note.guid},n,  upsert=True)
                     new_notes.append(note.guid)
-
-                # update users note list
-                self.mongo.users.update({'_id':self.user_id},{"$addToSet": {
-                    '_id_notes': {'$each': new_notes}}})
-
                 if inactive_notes:
-                    # _id list
-                    self.mongo.users.update({'_id':self.user_id},{'$pullAll': 
-                        {'_id_notes': inactive_notes}})
                     # collection 
                     self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
-
-            if new_stuff.tags:
-                for tag in new_stuff.tags:
-                    t = {'_id':tag.guid, 'str_name':tag.name}
-                    # insert or full change of the embedded tag doc
-                    self.mongo.users.update({'tags._id':tag.guid},t, upsert=True)
-
-            if new_stuff.notebooks:
-                for notebook in new_stuff.notebooks:
-                    n = {'_id':notebook.guid, 'str_name':notebook.name}
-                    # insert or full change of the embedded tag doc
-                    self.mongo.users.update({'notebooks._id':notebook.guid},n,upsert=True)
 
     def update_user_db(self):
         pass
@@ -408,6 +329,17 @@ class EvernoteProfileInferer(EvernoteConnector):
     go all out and store full user state.
 
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
+
+    def example(self, filter): 
+        if not note_filter:
+            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
+                pass
+            return 
+
+        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
+            pass
+        return 
     """ 
 
     def __init__(self, base_uri, note_url, mongohandle):
@@ -429,15 +361,17 @@ class EvernoteProfileInferer(EvernoteConnector):
         Ideas:
             By time, cluster and not just a single object?
         """
-
         c = Counter()
-        meta_list = [x.guid for x in self.get_notelist_meta(note_filter).notes]
-        print meta_list
+
+        if not note_filter:
+            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
+                c.update(x['tokens'])
+            return c
+
+        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
             c.update(x['tokens'])
         return c
-
-
     
     def readability(self, doc):
         """ Computes a score based upon what an douchebag would mark you
@@ -445,8 +379,17 @@ class EvernoteProfileInferer(EvernoteConnector):
         Ideas:
             pattern.metrics.flesh_reading_ease
         """
-        pass
+        if not note_filter:
+            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
+                pass
+            return
+
+        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
+            pass
+        return c
     
+       
     def word_importance(self, word):
         """ How important is this word/phrases, or more techniquely what is the
         ratio of this word affect on topic, and other statistics.

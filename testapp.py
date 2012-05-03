@@ -159,18 +159,12 @@ class TestEvernoteWrapper(unittest.TestCase):
                 mongo.notes.find_one({'_id':n.guid})['str_content'])
         self.assertIn('this is the body of test',
                 mongo.notes.find_one({'_id':note.guid})['str_content'])
-        self.assertIsNotNone(mongo.users.find_one({'_id_notes':note.guid}))
 
     def test_syncing_resync(self):
         #  new thing,  simple update
         self.assertEqual(True, self.en.need_sync)
         note = self.en.create_note('test2', 'this is the body of test 2')
-        #self.assertEqual(3, self.en.get_notelist().totalNotes)
-        self.assertFalse(mongo.users.find_one({'_id_notes':note.guid}))
         self.en.resync_db()
-        self.assertTrue(mongo.users.find_one({'_id_notes':note.guid}))
-        self.assertIn(note.guid,
-                mongo.users.find_one({'_id_notes':note.guid})['_id_notes'])
         # is it updated in the note collection too?
         self.assertTrue(mongo.notes.find_one({'_id':note.guid}))
 
@@ -186,11 +180,6 @@ class TestEvernoteWrapper(unittest.TestCase):
         mongonote = mongo.notes.find_one({'_id':note.guid})
         self.assertEqual(mongonote['str_content'], self.en.get_note_content(n))
 
-    def test_analytic_word_count(self):
-        note = self.en.create_note('test2', 'this is the body of test 2')
-        note = self.en.create_note('test5', 'this is the body of test 5')
-        self.en.resync_db()
-        self.en.word_count()
 
 
 
@@ -225,7 +214,7 @@ class TestEvernoteAnalytic(unittest.TestCase):
         note = self.en.create_note('test5', 'this is the body of test 5')
         note = self.en.create_note('test5', 'this is the body of test 5')
         self.en.initialize_db()
-        self.en.word_count()
+        print self.en.word_count()
 
 
 
@@ -237,7 +226,7 @@ class TestEvernoteAnalytic(unittest.TestCase):
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
-    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
     return suite

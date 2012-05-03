@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
+from math import sqrt, floor, modf
 import string
 from collections import Counter
 from Stemmer import Stemmer
@@ -78,7 +79,165 @@ class BasicXmlExtract(object):
         data = self.glob
         self.glob = []
         return " ".join(data)
-        
+ 
+### STRING READABILITY #############################################################################
+# 0.9-1.0 = easily understandable by 11-year old.
+# 0.6-0.7 = easily understandable by 13- to 15-year old.
+# 0.0-0.3 = best understood by university graduates.
+
+def flesch_reading_ease(string):
+    """ Returns the readability of the string as a value between 0.0-1.0:
+        0.30-0.50 (difficult) => 0.60-0.70 (standard) => 0.90-1.00 (very easy).
+    """
+    def count_syllables(word, vowels="aeiouy"):
+        n = 0
+        p = False # True if the previous character was a vowel.
+        for ch in word.endswith("e") and word[:-1] or word:
+            v = ch in vowels
+            n += int(v and not p)
+            p = v
+        return n
+    if len(string) <  3:
+        return 1.0
+    string = string.strip()
+    string = string.strip("\"'().")
+    string = string.lower()
+    string = string.replace("!", ".")
+    string = string.replace("?", ".")
+    string = string.replace(",", " ")
+    string = string.replace("\n", " ")
+    y = [count_syllables(w) for w in string.split(" ") if w != ""]
+    w = len([w for w in string.split(" ") if w != ""])
+    s = len([s for s in string.split(".") if len(s) > 2])
+    #R = 206.835 - 1.015 * w/s - 84.6 * sum(y)/w
+    # Use the Farr, Jenkins & Patterson algorithm,
+    # which uses simpler syllable counting (count_syllables() is the weak point here). 
+    R = 1.599 * sum(1 for v in y if v == 1) * 100 / w - 1.015*w/s - 31.517
+    R = max(0.0, min(R*0.01, 1.0))
+    return R
+
+### STATISTICS #####################################################################################
+
+def mean(list):
+    """ Returns the arithmetic mean of the given list of values.
+        For example: mean([1,2,3,4]) = 10/4 = 2.5.
+    """
+    return float(sum(list)) / (len(list) or 1)
+
+def median(list):
+    """ Returns the value that separates the lower half from the higher half of values in the list.
+    """
+    s = sorted(list)
+    n = len(list)
+    if n == 0:
+        raise ValueError, "median() arg is an empty sequence"
+    if n % 2 == 0:
+        return float(s[(n/2)-1] + s[n/2]) / 2
+    return s[n/2]
+
+def variance(list, sample=True):
+    """ Returns the variance of the given list of values.
+        The variance is the average of squared deviations from the mean.
+    """
+    # Sample variance = E((xi-m)^2) / (n-1)
+    # Population variance = E((xi-m)^2) / n
+    m = mean(list)
+    return sum((x-m)**2 for x in list) / (len(list)-int(sample) or 1)
+    
+def standard_deviation(list, *args, **kwargs):
+    """ Returns the standard deviation of the given list of values.
+        Low standard deviation => values are close to the mean.
+        High standard deviation => values are spread out over a large range.
+    """
+    return sqrt(variance(list, *args, **kwargs))
+    
+
+def histogram(list, k=10, range=None):
+    """ Returns a dictionary with k items: {(start, stop): [values], ...},
+        with equal (start, stop) intervals between min(list) => max(list).
+    """
+    # To loop through the intervals in sorted order, use:
+    # for (i,j), values in sorted(histogram(list).items()):
+    #     m = i + (j-i)/2 # midpoint
+    #     print i, j, m, values
+    if range is None:
+        range = (min(list), max(list))
+    k = max(int(k), 1)
+    w = float(range[1] - range[0] + 0.000001) / k # interval (bin width)
+    h = [[] for i in xrange(k)]
+    for x in list:
+        i = int(floor((x-range[0]) / w))
+        if 0 <= i < len(h): 
+            #print x, i, "(%.2f, %.2f)" % (range[0]+w*i, range[0]+w+w*i)
+            h[i].append(x)
+    return dict(((range[0]+w*i, range[0]+w+w*i), v) for i, v in enumerate(h))
+
+def moment(list, k=1):
+    """ Returns the kth central moment of the given list of values
+        (2nd central moment = variance, 3rd and 4th are used to define skewness and kurtosis).
+    """
+    if k == 1:
+        return 0.0
+    m = mean(list)
+    return sum([(x-m)**k for x in list]) / (len(list) or 1)
+    
+def skewness(list):
+    """ Returns the degree of asymmetry of the given list of values:
+        > 0.0 => relatively few values are higher than mean(list),
+        < 0.0 => relatively few values are lower than mean(list),
+        = 0.0 => evenly distributed on both sides of the mean (= normal distribution).
+    """
+    # Distributions with skew and kurtosis between -1 and +1 
+    # can be considered normal by approximation.
+    return moment(list, 3) / (moment(list, 2) ** 1.5 or 1)
+
+
+def kurtosis(list):
+    """ Returns the degree of peakedness of the given list of values:
+        > 0.0 => sharper peak around mean(list) = more infrequent, extreme values,
+        < 0.0 => wider peak around mean(list),
+        = 0.0 => normal distribution,
+        =  -3 => flat
+    """
+    return moment(list, 4) / (moment(list, 2) ** 2.0 or 1) - 3
+
+
+def quantile(list, p=0.5, sort=True, a=1, b=-1, c=0, d=1):
+    """ Returns the value from the sorted list at point p (0.0-1.0).
+        If p falls between two items in the list, the return value is interpolated.
+        For example, quantile(list, p=0.5) = median(list)
+    """
+    # Based on: Ernesto P. Adorio, http://adorio-research.org/wordpress/?p=125
+    # Parameters a, b, c, d refer to the algorithm by Hyndman and Fan (1996):
+    # http://stat.ethz.ch/R-manual/R-patched/library/stats/html/quantile.html
+    s = sort is True and sorted(list) or list
+    n = len(list)
+    f, i = modf(a + (b+n) * p - 1)
+    if n == 0:
+        raise ValueError, "quantile() arg is an empty sequence"
+    if f == 0: 
+        return float(s[int(i)])
+    if i < 0: 
+        return float(s[int(i)])
+    if i >= n: 
+        return float(s[-1])
+    i = int(floor(i))
+    return s[i] + (s[i+1] - s[i]) * (c + d * f)
+
+
+def boxplot(list, **kwargs):
+    """ Returns a tuple (min(list), Q1, Q2, Q3, max(list)) for the given list of values.
+        Q1, Q2, Q3 are the quantiles at 0.25, 0.5, 0.75 respectively.
+    """
+    # http://en.wikipedia.org/wiki/Box_plot
+    kwargs.pop("p", None)
+    kwargs.pop("sort", None)
+    s = sorted(list)
+    Q1 = quantile(s, p=0.25, sort=False, **kwargs)
+    Q2 = quantile(s, p=0.50, sort=False, **kwargs)
+    Q3 = quantile(s, p=0.75, sort=False, **kwargs)
+    return float(min(s)), Q1, Q2, Q3, float(max(s))
+       
 class TokenXmlExtract(object):
 
     def __init__(self):
@@ -197,5 +356,11 @@ if __name__ == '__main__':
     test = u""" Alot of python magic and helpers in this list comprehension
      If this is one area where a more precise C implementation would be amazing
      but more work. Matthew's c$$l looking #beast $mode."""
-    print text_processer(test,False)
-    print text_processer(test,)
+    #print text_processer(test,False)
+    #print text_processer(test,)
+    print quantile(range(10), p=0.5) == median(range(10))
+    a = 1
+    b = 1000
+    U = [float(i-a)/(b-a) for i in range(a,b)] # uniform distribution
+    print abs(-1.2 - kurtosis(U)) < 0.0001
+
