@@ -19,7 +19,7 @@ from helpers import BasicXmlExtract, text_processer
 
 from lxml import etree
 
-from pattern.vector import Corpus
+from pattern.vector import Corpus, Document
 
 from pymongo import Connection 
 from bson import json_util
@@ -343,12 +343,16 @@ class EvernoteProfileInferer(EvernoteConnector):
             Features are not just word counts and tags,
             Could be any number of other methods.
             Cache the corpus and lsa matrix??
+        TODO:
+            what should be a lsa recution vector amount?
+            threshold for weights
+                
         """
         if not note_filter:
             docs =[]
             output ={}
-            for x in
-            self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1,'str_title':1}):
+            for x in self.mongo.notes.find(
+                    {'_id_user':self.user_id},{'tokens':1,'str_title':1}):
                 d =  Document(x['tokens'],name=x['str_title'],top=30)
                 d._id = x['_id']
                 docs.append(d)
@@ -356,9 +360,9 @@ class EvernoteProfileInferer(EvernoteConnector):
             corpus.reduce(10)
             vectors = corpus.lsa.vectors
             concepts = corpus.lsa.concepts
-            for doc, concept in vectors.items():
-                for index, weight in concepts.items():
-                    if abs(weight) >0.2:
+            for doc, conc in vectors.items():
+                for index, weight in conc.items():
+                    if abs(weight) >0.5:
                         if output.has_key(doc):
                             output[doc].append(corpus.lsa.terms[index])
                         else:
@@ -370,6 +374,12 @@ class EvernoteProfileInferer(EvernoteConnector):
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
             pass
         return 
+
+    def lsa_extract(self):
+        """ runs lsa on a user returns the top words for each note.
+        TODO: pickle and store the now created corpus and output."""
+        pass
+
 
     def word_count(self, note_filter=None):
         """ Counts the total number of words in some sort of content of 

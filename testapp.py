@@ -208,13 +208,17 @@ class TestEvernoteAnalytic(unittest.TestCase):
         cls.en.empty_trash()
 
 
-    def test_analytic_word_count(self):
+    def test_analytic_1word_count(self):
         note = self.en.create_note('test2', 'this is the body of test 2')
         note = self.en.create_note('test5', 'this is the body of test 5')
         note = self.en.create_note('test5', 'this is the body of test 5')
         note = self.en.create_note('test5', 'this is the body of test 5')
         self.en.initialize_db()
         print self.en.word_count()
+
+    def test_analytic_2topic_summary(self):
+        print self.en.topic_summary()
+
 
 
 
@@ -226,9 +230,9 @@ class TestEvernoteAnalytic(unittest.TestCase):
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
+#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
+#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())
