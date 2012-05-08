@@ -330,30 +330,46 @@ class EvernoteProfileInferer(EvernoteConnector):
 
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
 
-    def example(self, filter): 
-        if not note_filter:
-            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
-                pass
-            return 
-
-        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
-            pass
-        return 
     """ 
 
     def __init__(self, base_uri, note_url, mongohandle):
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
 
-    def topic_summary(self, docs):
+    def topic_summary(self, note_filter=None):
         """ Returns what are the main features that make up this topic.
         Features, setiment analysis, lsa main features, time deltas,
         could be any  mashup of other statistical technique.
         Ideas:
             Features are not just word counts and tags,
             Could be any number of other methods.
+            Cache the corpus and lsa matrix??
         """
-        pass
+        if not note_filter:
+            docs =[]
+            output ={}
+            for x in
+            self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1,'str_title':1}):
+                d =  Document(x['tokens'],name=x['str_title'],top=30)
+                d._id = x['_id']
+                docs.append(d)
+            corpus = Corpus(docs)
+            corpus.reduce(10)
+            vectors = corpus.lsa.vectors
+            concepts = corpus.lsa.concepts
+            for doc, concept in vectors.items():
+                for index, weight in concepts.items():
+                    if abs(weight) >0.2:
+                        if output.has_key(doc):
+                            output[doc].append(corpus.lsa.terms[index])
+                        else:
+                            output[doc] = [(corpus.lsa.terms[index])]
+
+            return output
+
+        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
+            pass
+        return 
 
     def word_count(self, note_filter=None):
         """ Counts the total number of words in some sort of content of 
@@ -387,7 +403,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
             pass
-        return c
+        return 
     
        
     def word_importance(self, word):
