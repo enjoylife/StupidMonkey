@@ -49,6 +49,9 @@ def gen_stops():
     return frozenset(english_ignore)
 
 def ngrams(tokens, MIN_N, MAX_N):
+    """ iterable of tokens, smallest nrgram you want (use 1), and the largest.
+    If both Min_N and MAX_N are 1, it just yields the same iterable."""
+
     n_tokens = len(tokens)
     for i in xrange(n_tokens):
         for j in xrange(i+MIN_N, min(n_tokens, i+MAX_N)+1):
@@ -60,12 +63,14 @@ STEMMER = Stemmer('english')
 
 def text_processer(doc,punc=True):
     """ Alot of python magic and helpers in this list comprehension
-     If this is one area where a more precise C implementation would be amazing
-     but more work."""
+     If this is one area where a more precise C implementation would be
+     alot faster but more work."""
+    # get ride of weird unicode that pops up 
     doc = unicodedata.normalize('NFKD',doc).encode('ascii','ignore')
     if  not punc:
+        # don't want puncuation, delete it 
         doc = doc.translate(TABLE, string.punctuation)
-    return Counter([x for x in ngrams((doc.lower().split()),1,2) if x not in STOPLIST])
+    return Counter([STEMMER.stemWord(x) for x in ngrams((doc.lower().split()),1,2) if x not in STOPLIST])
 
 class BasicXmlExtract(object):
 
