@@ -15,7 +15,7 @@ import evernote.edam.type.ttypes as Types
 import evernote.edam.error.ttypes as Errors
 import evernote.edam.limits.constants as Limits
 
-from helpers import BasicXmlExtract, text_processer
+from helpers import BasicXmlExtract, text_processer, flesch_reading_ease
 
 from lxml import etree
 
@@ -34,7 +34,7 @@ __all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
 ENHOST = "sandbox.evernote.com"
 
 # Real applications authenticate with Evernote using OAuth
-AUTHTOKEN = "S=s1:U=fc7c:E=13e673d7ae6:C=1370f8c4eea:P=4f:A=en-devtoken:H=753c4246972eb63f17cd1677d3c04126"
+AUTHTOKEN = "S=s1:U=fc7c:E=13e8519dcbf:C=1372d68b0bf:P=1cd:A=en-devtoken:H=0f5db37f979a59c51f7695aba6d0145c"
 
 ### Helpers ###
 ###############
@@ -80,15 +80,15 @@ class EvernoteConnector(object):
     to help distinguish between the layers of this class and the thrift
     generated classes.
 
-    Local cache stores for a single user the it's guid. The note
-    collection itself is stored seperatly and contains the owners guid,
-    (_id_user), title (str_title), notebook guid (_id_notebook), tags (_id_tags),
-    and it's content (str_content).
+    Local cache stores the user guid and a boolean for lsa analysis. The note collection itself is stored 
+    seperatly and contains the owners guid,(_id_user), title (str_title), 
+    notebook guid (_id_notebook), tags (_id_tags),it's content (str_content),
+    and the content tokens (tokens).
 
     TODO:
         Error checking, alot of it, that's the whole reseason behind the verbose
         method calling.
-        Extract word tokens on syncs.
+        caching of Analytic methods too.
     """
 
     def __init__(self, base_uri, note_url, mongohandle):
@@ -97,9 +97,7 @@ class EvernoteConnector(object):
         if note_url is  AUTHTOKEN:
             noteStoreUrl = self.user_client.getNoteStoreUrl(AUTHTOKEN)
             self.auth_token = AUTHTOKEN
-
         #TODO oauth handshake
-
         self.note_client = en_notestore_setup(noteStoreUrl)
 
         self.mongo = mongohandle
@@ -201,7 +199,10 @@ class EvernoteConnector(object):
     # used for reducing resource and process time for Analytics
 
     def yield_sync(self,expunged=False ,intial=0):
-        """ Gathers any  content for this class to use """
+        """ Gathers any  content for this class to use 
+        TODO: 
+            Retrieve more by adding more to the SyncChunkFilter.
+            """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
                 includeNotes=True )
@@ -228,14 +229,14 @@ class EvernoteConnector(object):
 
         user_scaffold =  {
             '_id': self.user.id,
+            'bool_lsa':False,
             }
         # create the skeletn
         user_id = self.mongo.users.insert(user_scaffold)
         ## now lets  go through the iterable of different types   and update 
         for new_stuff in self.yield_sync():
-
+            # hold all the notes till ready to send a batch to mongo
             notes =[]
-            
             if new_stuff.notes:
                 for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
@@ -256,7 +257,7 @@ class EvernoteConnector(object):
     def resync_db(self):
         """ Performs the syncing if we already have initialized """
         parser = etree.HTMLParser(target=BasicXmlExtract())
-        for new_stuff in self.yield_sync(True, self.latest_usn):
+        for new_stuff in self.yield_sync(expunged=True, self.latest_usn):
 
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
@@ -319,6 +320,12 @@ class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info
     hidden within the cloud of data from the Evernote service.
 
+    Analytic method importance:
+    1. topic_summary
+    2. outside_knowledge
+    3. fix_data
+    4. learning_process
+
     Ideas:
         Boxplot over all users in a certain method, so you would show their
     totals but then also show how that number is relative to others. Maybe this
@@ -326,7 +333,8 @@ class EvernoteProfileInferer(EvernoteConnector):
 
     Caching: 
         perhaps pickling the objects and saving them for a week or something, or
-    go all out and store full user state.
+    go all out and store full user state, and continually update the corpus and
+    docs?.
 
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
 
@@ -335,6 +343,43 @@ class EvernoteProfileInferer(EvernoteConnector):
     def __init__(self, base_uri, note_url, mongohandle):
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
 
+    def lsa_extract(self, note_guids=None):
+        """ runs lsa on a user returns the top words for each note.
+        TODO: pickle and store the now created corpus and output.
+        """
+        docs =[]
+        if note_guids:
+            #TODO Unpickle the previous corpus 
+            # only those that need to be updated from the note_guids
+            for x in self.mongo.notes.find(
+                    {'_id':{'$in':note_guids}},{'tokens':1,'str_title':1}):
+                d =  Document(x['tokens'],name=x['str_title'],top=30)
+                d._id = x['_id']
+                docs.append(d)
+            # update the corpus, corpus.update()???
+        # LSA not been done before
+        else:
+            # all notes
+            for x in self.mongo.notes.find(
+                        {'_id_user':self.user_id},{'tokens':1,'str_title':1}):
+                    d =  Document(x['tokens'],name=x['str_title'],top=30)
+                    d._id = x['_id']
+                    docs.append(d)
+            corpus = Corpus(docs)
+            corpus.reduce(10)
+            vectors = corpus.lsa.vectors
+            concepts = corpus.lsa.concepts
+            for doc, conc in vectors.items():
+                words=[]
+                for index, weight in conc.items():
+                    if abs(weight) >0.5:
+                            words.append(corpus.lsa.terms[index])
+                # push the minimaized tokens to the note
+                self.mongo.notes.update({'_id':doc},{'$pushAll':{'lsa':words}})
+            # boolean to signal lsa has been done
+            self.mongo.users.update({'_id':self.user_id},{'$set':{'lsa':True}})
+
+
     def topic_summary(self, note_filter=None):
         """ Returns what are the main features that make up this topic.
         Features, setiment analysis, lsa main features, time deltas,
@@ -342,44 +387,46 @@ class EvernoteProfileInferer(EvernoteConnector):
         Ideas:
             Features are not just word counts and tags,
             Could be any number of other methods.
-            Cache the corpus and lsa matrix??
         TODO:
-            what should be a lsa recution vector amount?
-            threshold for weights
-                
+            Cache the corpus and lsa matrix??
+            what should be a lsa reduction vector amount?
+            threshold for weights, lower or higher?
         """
+        note_words ={}
         if not note_filter:
-            docs =[]
-            output ={}
-            for x in self.mongo.notes.find(
-                    {'_id_user':self.user_id},{'tokens':1,'str_title':1}):
-                d =  Document(x['tokens'],name=x['str_title'],top=30)
-                d._id = x['_id']
-                docs.append(d)
-            corpus = Corpus(docs)
-            corpus.reduce(10)
-            vectors = corpus.lsa.vectors
-            concepts = corpus.lsa.concepts
-            for doc, conc in vectors.items():
-                for index, weight in conc.items():
-                    if abs(weight) >0.5:
-                        if output.has_key(doc):
-                            output[doc].append(corpus.lsa.terms[index])
-                        else:
-                            output[doc] = [(corpus.lsa.terms[index])]
+            if self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1})['lsa']:
+                for x in
+                self.mongo.notes.find({'_id_user':self.user_id},{'lsa':1}):
+                    note_words[(x['_id'])] = x['lsa']
 
-            return output
+                
+           
+        note_filter = NoteStore.NoteFilter(note_filter)
+        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        for x in self.mongo.notes.find(
+                {'_id':{'$in':meta_list}}, {'tokens':1, 'str_title':1}):
+            d =  Document(x['tokens'],name=x['str_title'],top=30)
+            d._id = x['_id']
+            docs.append(d)
+        corpus = Corpus(docs)
+        return self.lsa_extract(corpus)
 
+    def outside_knowledge(self, doc):
+        """ Gather resources that are related to this doc from other services.
+        Prime canidates are wikipedia, duckduckgo, freebase, the times, etc..
+        """
+        c = Counter()
+
+        if not note_filter:
+            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
+                pass
+            return
+
+        note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
             pass
         return 
-
-    def lsa_extract(self):
-        """ runs lsa on a user returns the top words for each note.
-        TODO: pickle and store the now created corpus and output."""
-        pass
-
 
     def word_count(self, note_filter=None):
         """ Counts the total number of words in some sort of content of 
@@ -394,28 +441,32 @@ class EvernoteProfileInferer(EvernoteConnector):
                 c.update(x['tokens'])
             return c
 
+        note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
             c.update(x['tokens'])
         return c
     
-    def readability(self, doc):
+    def readability(self, note_filter=None):
         """ Computes a score based upon what an douchebag would mark you
         down for when student critiqing papers.
         Ideas:
             pattern.metrics.flesh_reading_ease
         """
+        output={}
         if not note_filter:
-            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
-                pass
-            return
+            for x in self.mongo.notes.find(
+                    {'_id_user':self.user_id},{'str_content':1}):
+                output[(x['_id'])] = flesch_reading_ease(x['str_content'])
+        return output
 
+        note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
-            pass
-        return 
+        for x in self.mongo.notes.find(
+                {'_id':{'$in':meta_list}}, {'str_content':1}):
+            output[(x['_id'])] = flesch_reading_ease(x['str_content'])
+        return output
     
-       
     def word_importance(self, word):
         """ How important is this word/phrases, or more techniquely what is the
         ratio of this word affect on topic, and other statistics.
@@ -439,11 +490,6 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         pass
 
-    def outside_knowledge(self, doc):
-        """ Gather resources that are related to this doc from other services.
-        Prime canidates are wikipedia, duckduckgo, freebase, the times, etc..
-        """
-        pass
 
     def average_location_of(self,obj):
         """ Using lat, long coordinetes detrmine the places where the most data

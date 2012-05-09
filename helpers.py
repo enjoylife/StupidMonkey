@@ -29,6 +29,9 @@ def mongo_connect(name,extra=False):
         sys.stderr.write("Could Not connect to MongoDB: %s\n" %e)
         sys.exit(1)
 
+def mongo_connect_gridfs(db, name):
+    return gridfs.GridFS(db)
+
 def redis_connect():
     """ 
     Connect to a Redis instance, and write to stdio if failure. 

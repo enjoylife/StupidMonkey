@@ -219,6 +219,9 @@ class TestEvernoteAnalytic(unittest.TestCase):
     def test_analytic_2topic_summary(self):
         print self.en.topic_summary()
 
+    def test_analytic_3flesch_reading_ease(self):
+        print self.en.readability()
+
 
 
 
@@ -230,9 +233,9 @@ class TestEvernoteAnalytic(unittest.TestCase):
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
-#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
-#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
-#    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestApp))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())
