@@ -257,7 +257,7 @@ class EvernoteConnector(object):
     def resync_db(self):
         """ Performs the syncing if we already have initialized """
         parser = etree.HTMLParser(target=BasicXmlExtract())
-        for new_stuff in self.yield_sync(expunged=True, self.latest_usn):
+        for new_stuff in self.yield_sync(expunged=True, intial=self.latest_usn):
 
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
@@ -315,7 +315,10 @@ class EvernoteConnector(object):
         content += '</en-note>'
         return content
     
-### Analytic Class for infering things ###
+
+### Analytic ###
+################
+
 class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info
     hidden within the cloud of data from the Evernote service.
@@ -337,47 +340,56 @@ class EvernoteProfileInferer(EvernoteConnector):
     docs?.
 
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
-
     """ 
 
     def __init__(self, base_uri, note_url, mongohandle):
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
 
-    def lsa_extract(self, note_guids=None):
-        """ runs lsa on a user returns the top words for each note.
-        TODO: pickle and store the now created corpus and output.
+    def _lsa_extract(self, update_guids=None):
+        """ runs lsa on a user and creates corpus or updates a corpus and lsa
+        TODO:
+            Store other data in the corpus besides basic text content, ie,
+            extracted image, attribute note data, etc...
         """
         docs =[]
-        if note_guids:
-            #TODO Unpickle the previous corpus 
-            # only those that need to be updated from the note_guids
+        # update the corpus with the only these notes
+        if update_guids:
+            corpus = Corpus.load(cls, '/data/corpus/'+str(self.user_id))
+            # only those that need to be updated from the update_guids
             for x in self.mongo.notes.find(
-                    {'_id':{'$in':note_guids}},{'tokens':1,'str_title':1}):
-                d =  Document(x['tokens'],name=x['str_title'],top=30)
+                    {'_id':{'$in':update_guids}},{'tokens':1,'str_title':1}):
+                # create the updated doc
+                d =  Document(x['tokens'],name=x['str_title'],top=50)
+                # set the id to what we want
                 d._id = x['_id']
                 docs.append(d)
-            # update the corpus, corpus.update()???
-        # LSA not been done before
-        else:
-            # all notes
-            for x in self.mongo.notes.find(
+                # remove old doc because corpus will still have old content
+                corpus.remove(d)
+            corpus.extend(docs)
+
+        else: # LSA not been done before
+            for x in self.mongo.notes.find( # all notes of this user
                         {'_id_user':self.user_id},{'tokens':1,'str_title':1}):
                     d =  Document(x['tokens'],name=x['str_title'],top=30)
                     d._id = x['_id']
                     docs.append(d)
             corpus = Corpus(docs)
-            corpus.reduce(10)
-            vectors = corpus.lsa.vectors
-            concepts = corpus.lsa.concepts
-            for doc, conc in vectors.items():
-                words=[]
-                for index, weight in conc.items():
-                    if abs(weight) >0.5:
-                            words.append(corpus.lsa.terms[index])
-                # push the minimaized tokens to the note
-                self.mongo.notes.update({'_id':doc},{'$pushAll':{'lsa':words}})
-            # boolean to signal lsa has been done
-            self.mongo.users.update({'_id':self.user_id},{'$set':{'lsa':True}})
+
+        # picked arbitrarily
+        corpus.reduce(50)
+        vectors = corpus.lsa.vectors
+        #doc.id and dic of concept vectors
+        for doc, conc in vectors.items():
+            words=[]
+            for index, weight in conc.items():
+                if abs(weight) >0.5:
+                        words.append(corpus.lsa.terms[index])
+            # add only if not already present the minimaized tokens to the note
+            self.mongo.notes.update({'_id':doc},{'$addToSet':{'tokens_lsa':{'$each': words}}})
+        # boolean to signal lsa has been done
+        self.mongo.users.update({'_id':self.user_id},{'$set':{'tokens_lsa':True}})
+        ## this might block for a while. Idea: split it into a new thread
+        corpus.save('/data/corpus/'+str(self.user_id))
 
 
     def topic_summary(self, note_filter=None):
@@ -393,23 +405,22 @@ class EvernoteProfileInferer(EvernoteConnector):
             threshold for weights, lower or higher?
         """
         note_words ={}
+        print self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa')
+        if not self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa'):
+            # we have not done lsa before, do it now
+            self._lsa_extract()
         if not note_filter:
-            if self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1})['lsa']:
-                for x in
-                self.mongo.notes.find({'_id_user':self.user_id},{'lsa':1}):
-                    note_words[(x['_id'])] = x['lsa']
-
-                
+            # check if lsa has already been done
+        
+            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens_lsa':1}):
+                note_words[(x['_id'])] = x['tokens_lsa']
+            return note_words
            
         note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find(
-                {'_id':{'$in':meta_list}}, {'tokens':1, 'str_title':1}):
-            d =  Document(x['tokens'],name=x['str_title'],top=30)
-            d._id = x['_id']
-            docs.append(d)
-        corpus = Corpus(docs)
-        return self.lsa_extract(corpus)
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens_lsa':1}):
+            note_words[(x['_id'])] = x['tokens_lsa']
+        return note_words
 
     def outside_knowledge(self, doc):
         """ Gather resources that are related to this doc from other services.
