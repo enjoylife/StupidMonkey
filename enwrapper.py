@@ -80,10 +80,17 @@ class EvernoteConnector(object):
     to help distinguish between the layers of this class and the thrift
     generated classes.
 
-    Local cache stores the user guid and a boolean for lsa analysis. The note collection itself is stored 
-    seperatly and contains the owners guid,(_id_user), title (str_title), 
-    notebook guid (_id_notebook), tags (_id_tags),it's content (str_content),
-    and the content tokens (tokens).
+    mongo.users:
+        {_id: user_id} =  user guid
+        {bool_lsa: False}  =  a boolean for lsa analysis. 
+    mongo.notes:
+        {_id_user: self.user_id} = the owner's guid
+        {str_title: note.title} = note title 
+        {_id_notebook: note.notebook} = this note's notebook guid 
+        {_id_tags: [note.tags]} =  the array of tags this note 
+        {str_content: note.content} = note content
+        {tokens_content: [~note.content.split()]} =  the extracted words for this note
+        {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
 
     TODO:
         Error checking, alot of it, that's the whole reseason behind the verbose
@@ -248,7 +255,7 @@ class EvernoteConnector(object):
                             '_id_notebook':note.notebookGuid,
                             'str_title':note.title,'_id_tags':note.tagGuids,
                             'str_content':note.content, 
-                            'tokens': text_processer(data),
+                            'tokens_content': text_processer(data),
                             }
                         notes.append(n)
                 # insert the  note in its own collection because maybe large note data string?
@@ -276,7 +283,7 @@ class EvernoteConnector(object):
                         '_id_notebook':note.notebookGuid,
                         'str_title':note.title,'_id_tags':note.tagGuids,
                         'str_content':note.content, 
-                        'tokens' :text_processer(data),
+                        'tokens_content' :text_processer(data),
                         }
                     self.mongo.notes.update({'_id':note.guid},n,  upsert=True)
                     new_notes.append(note.guid)
@@ -357,9 +364,9 @@ class EvernoteProfileInferer(EvernoteConnector):
             corpus = Corpus.load(cls, '/data/corpus/'+str(self.user_id))
             # only those that need to be updated from the update_guids
             for x in self.mongo.notes.find(
-                    {'_id':{'$in':update_guids}},{'tokens':1,'str_title':1}):
+                    {'_id':{'$in':update_guids}},{'tokens_content':1,'str_title':1}):
                 # create the updated doc
-                d =  Document(x['tokens'],name=x['str_title'],top=50)
+                d =  Document(x['tokens_content'],name=x['str_title'],top=50)
                 # set the id to what we want
                 d._id = x['_id']
                 docs.append(d)
@@ -369,8 +376,8 @@ class EvernoteProfileInferer(EvernoteConnector):
 
         else: # LSA not been done before
             for x in self.mongo.notes.find( # all notes of this user
-                        {'_id_user':self.user_id},{'tokens':1,'str_title':1}):
-                    d =  Document(x['tokens'],name=x['str_title'],top=30)
+                        {'_id_user':self.user_id},{'tokens_content':1,'str_title':1}):
+                    d =  Document(x['tokens_content'],name=x['str_title'],top=30)
                     d._id = x['_id']
                     docs.append(d)
             corpus = Corpus(docs)
@@ -429,13 +436,15 @@ class EvernoteProfileInferer(EvernoteConnector):
         c = Counter()
 
         if not note_filter:
-            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
+            for x in
+            self.mongo.notes.find({'_id_user':self.user_id},{'tokens_content':1}):
                 pass
             return
 
         note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
+                {'tokens_content':1}):
             pass
         return 
 
@@ -448,14 +457,16 @@ class EvernoteProfileInferer(EvernoteConnector):
         c = Counter()
 
         if not note_filter:
-            for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens':1}):
-                c.update(x['tokens'])
+            for x in
+            self.mongo.notes.find({'_id_user':self.user_id},{'tokens_content':1}):
+                c.update(x['tokens_content'])
             return c
 
         note_filter = NoteStore.NoteFilter(note_filter)
         meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens':1}):
-            c.update(x['tokens'])
+        for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
+                {'tokens_content':1}):
+            c.update(x['tokens_content'])
         return c
     
     def readability(self, note_filter=None):
