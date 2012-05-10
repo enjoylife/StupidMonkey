@@ -159,11 +159,10 @@ class TestEvernoteWrapper(unittest.TestCase):
 
 class TestEvernoteAnalytic(unittest.TestCase):
 
-
     @classmethod
     def setUpClass(cls):
         cls.en = EvernoteProfileInferer(ENHOST, AUTHTOKEN, mongo)
-        for note in cls.en.get_notelist(initial=1).notes:
+        for note in cls.en.get_notelist(1).notes:
             cls.en.delete_note(note)
         cls.en.empty_trash()
 
@@ -173,30 +172,35 @@ class TestEvernoteAnalytic(unittest.TestCase):
         mongo.users.drop()
         mongo.notes.drop()
         # keep first test note
-        for note in cls.en.get_notelist(initial=1).notes:
+        for note in cls.en.get_notelist(1).notes:
             cls.en.delete_note(note)
         cls.en.empty_trash()
 
 
-    def test_analytic_1word_count(self):
+    def test_analytic_word_count(self):
         """ Word count depends on mongo find syntax and note_filters 
         TODO TESTS:
-            note_filters
-            find syntax"""
+        """
+        note = self.en.create_note('test', 'this is the body of test 2')
+        note = self.en.create_note('test', 'this is the body of test')
+        note = self.en.create_note('test3', 'this is the body of test3')
+        self.en.initialize_db()
+        self.assertIn('test', self.en.word_count())
+        self.assertTrue(dict(self.en.word_count()))
+        self.assertTrue(self.en.word_count(words='intitle:test'))
+
+    def test_analytic_topic_summary(self):
+        """ topic summary depends on _lsa_extract """
         note = self.en.create_note('test', 'this is the body of test 2')
         self.en.initialize_db()
-        self.assertTrue(self.en.word_count())
-        self.assertTrue(dict(self.en.word_count()))
-        #self.assertTrue(self.en.word_count(words='intitle:test'))
 
-    def test_analytic_2topic_summary(self):
-        print self.en.topic_summary()
-
-    def test_analytic_3flesch_reading_ease(self):
-        print self.en.readability()
-
-    def test_outside_4knowledge(self):
+    def test_analytic_flesch_reading_ease(self):
         pass
+
+    def test_outside_knowledge(self):
+        note = self.en.create_note('My math title', 'lets talk about science')
+        self.en.initialize_db()
+        self.assertTrue(self.en.outside_knowledge(note.guid, 'science'))
 
        
     def test_evernote_querying(self):

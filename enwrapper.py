@@ -232,7 +232,7 @@ class EvernoteConnector(object):
         """
         parser = etree.HTMLParser(target=BasicXmlExtract())
         # already have a user just rsync
-        if self.mongo.users.find_one({'_id':self.user_id},{}):
+        if self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
             return self.resync_db()
 
         user_scaffold =  {
@@ -263,7 +263,9 @@ class EvernoteConnector(object):
                 notes_id = self.mongo.notes.insert(notes)
 
     def resync_db(self):
-        """ Performs the syncing if we already have initialized """
+        """ Performs the syncing if we already have initialized 
+        TODO: also sync Analytic methods
+        """
         parser = etree.HTMLParser(target=BasicXmlExtract())
         for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
 
@@ -412,8 +414,7 @@ class EvernoteProfileInferer(EvernoteConnector):
             Could be any number of other methods.
         """
         note_words ={}
-        print self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa')
-        if not self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa'):
+        if not self.mongo.users.find_one({'_id':self.user_id, 'bool_lsa':True},{'bool_lsa':1}):
             # we have not done lsa before, do it now
             self._lsa_extract()
         if filterargs.keys():
@@ -446,7 +447,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         # to set a constistant method call across all knowledge funcs??
         return  {'wikipedia':document}
 
-    def outside_knowledge(self, note_guid, query,  service=None):
+    def outside_knowledge(self, note_guid, query,  service='wiki'):
         """ Gather resources that are related to this note from other services.
         Prime canidates are wikipedia, duckduckgo, freebase, news feeds, etc..
         Params:
@@ -481,7 +482,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         # failed, must not have done it before
         else:
             # get the search engine attached to the class
-            api = getattr(self, service, 'wiki')
+            api = getattr(self, service)
             data = api.search(query,cached=True,timeout=10) 
             if data:
                 #call the right method for this service
@@ -502,7 +503,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         c = Counter()
 
-        if not filterargs.keys():
+        if not filterargs:
             for x in self.mongo.notes.find(
                     {'_id_user':self.user_id},{'tokens_content':1}):
                 c.update(x['tokens_content'])
@@ -575,8 +576,7 @@ class EvernoteProfileInferer(EvernoteConnector):
 
  
 if __name__ == "__main__":
-    filter = NoteStore.NoteFilter(words='intitle:body')
-    print filter
+    pass
 
 
 
