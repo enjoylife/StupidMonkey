@@ -144,8 +144,12 @@ class EvernoteConnector(object):
         return self.note_client.updateNote(self.auth_token, note)
 
     def delete_note(self, note):
-        return self.update_note(note=note, active=False, deleted=int(time.time()*1000))
-
+        """ able to give a note, or a guid """
+        if hasattr(note,'guid'):
+            return self.note_client.deleteNote(self.auth_token, note.guid)
+        else:
+            return self.note_client.deleteNote(self.autho_token,note)
+            
     def get_trash_notes(self):
         return self.yield_note_list_content(self.get_notelist(inactive=True))
 

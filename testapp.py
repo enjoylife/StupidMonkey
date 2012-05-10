@@ -176,7 +176,6 @@ class TestEvernoteAnalytic(unittest.TestCase):
             cls.en.delete_note(note)
         cls.en.empty_trash()
 
-
     def test_analytic_word_count(self):
         """ Word count depends on mongo find syntax and note_filters 
         TODO TESTS:
@@ -201,7 +200,6 @@ class TestEvernoteAnalytic(unittest.TestCase):
         note = self.en.create_note('My math title', 'lets talk about science')
         self.en.initialize_db()
         self.assertTrue(self.en.outside_knowledge(note.guid, 'science'))
-
        
     def test_evernote_querying(self):
         pass
