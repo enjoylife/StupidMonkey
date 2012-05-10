@@ -19,6 +19,7 @@ from helpers import BasicXmlExtract, text_processer, flesch_reading_ease
 
 from lxml import etree
 
+from pattern.web import Wikipedia
 from pattern.vector import Corpus, Document
 
 from pymongo import Connection 
@@ -330,6 +331,9 @@ class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info
     hidden within the cloud of data from the Evernote service.
 
+    Holds a self.wiki search class to provide searching for related wiki
+    articles
+
     Analytic method importance:
     1. topic_summary
     2. outside_knowledge
@@ -351,6 +355,7 @@ class EvernoteProfileInferer(EvernoteConnector):
 
     def __init__(self, base_uri, note_url, mongohandle):
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
+        self.wiki = Wikipedia(language='en')
 
     def _lsa_extract(self, update_guids=None):
         """ runs lsa on a user and creates corpus or updates a corpus and lsa
@@ -395,9 +400,8 @@ class EvernoteProfileInferer(EvernoteConnector):
             self.mongo.notes.update({'_id':doc},{'$addToSet':{'tokens_lsa':{'$each': words}}})
         # boolean to signal lsa has been done
         self.mongo.users.update({'_id':self.user_id},{'$set':{'tokens_lsa':True}})
-        ## this might block for a while. Idea: split it into a new thread
+        ## this might block for a while. TODO: split it into a new thread
         corpus.save('/data/corpus/'+str(self.user_id))
-
 
     def topic_summary(self, note_filter=None):
         """ Returns what are the main features that make up this topic.
@@ -406,10 +410,6 @@ class EvernoteProfileInferer(EvernoteConnector):
         Ideas:
             Features are not just word counts and tags,
             Could be any number of other methods.
-        TODO:
-            Cache the corpus and lsa matrix??
-            what should be a lsa reduction vector amount?
-            threshold for weights, lower or higher?
         """
         note_words ={}
         print self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa')
@@ -429,24 +429,55 @@ class EvernoteProfileInferer(EvernoteConnector):
             note_words[(x['_id'])] = x['tokens_lsa']
         return note_words
 
-    def outside_knowledge(self, doc):
-        """ Gather resources that are related to this doc from other services.
-        Prime canidates are wikipedia, duckduckgo, freebase, the times, etc..
+    def wiki_knowledge(self,data):
+        """ Helper for storing a pattern wiki search query object. 
+        Must return the newly """
+        document = {}
+        # wiki intra links
+        document['intra_links'] = data.links[:5]
+        document['extern_links'] = data.external[:5]
+        # only want first section not a huge file
+        document['data'] = data.sections[0].content
+        return document
+
+
+    def outside_knowledge(self, note_guid, query,  service=None):
+        """ Gather resources that are related to this note from other services.
+        Prime canidates are wikipedia, duckduckgo, freebase, news feeds, etc..
+        Params:
+            note_guid
+            query = the string that you want searched for
+            service = (optional) which service to query, default wikipedia
+        mongo.notes outside_knowledge scheme layout
+        "An doc of  of past query strings that contain result objects with service
+        specific data.
+        {knowledge: 
+            {
+            str_query: string that was queried on {
+            wikipedia: {
+                intra_links: [links], extern_links:[links], data:str
+            }
+            duckduckgo:{
+            }
+                ....
+            }
+        }
         """
-        c = Counter()
+        # retrive note that has this query string embedded
+        note = self.mongo.notes.find_one(
+                {'_id':note_guid, 'knowledge.str_query':query}, 
+                    {'knowledge.str_query':1})
+        if note and service:
+            return note[service]
+        elif note:
+            return note
+        else:
+            api = getattr(self, service, 'wiki')
+            data = api.search(query,cached=False,timeout=10) 
+            if data:
+                #call the right method for this service
+                return getattr(self,service+ '_knowledge','wiki_knowledge')(data) 
 
-        if not note_filter:
-            for x in
-            self.mongo.notes.find({'_id_user':self.user_id},{'tokens_content':1}):
-                pass
-            return
-
-        note_filter = NoteStore.NoteFilter(note_filter)
-        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
-                {'tokens_content':1}):
-            pass
-        return 
 
     def word_count(self, note_filter=None):
         """ Counts the total number of words in some sort of content of 
@@ -457,8 +488,8 @@ class EvernoteProfileInferer(EvernoteConnector):
         c = Counter()
 
         if not note_filter:
-            for x in
-            self.mongo.notes.find({'_id_user':self.user_id},{'tokens_content':1}):
+            for x in self.mongo.notes.find(
+                    {'_id_user':self.user_id},{'tokens_content':1}):
                 c.update(x['tokens_content'])
             return c
 
