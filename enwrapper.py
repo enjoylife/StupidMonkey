@@ -158,7 +158,6 @@ class EvernoteConnector(object):
 
     ### Querying ###
 
-
     def get_note_content(self, note):
         return self.note_client.getNoteContent(self.auth_token, note.guid)
 
@@ -253,7 +252,7 @@ class EvernoteConnector(object):
                 for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if note.active:
-                        ## Parsing data into token counts ##
+                        ## Parsing data with lxml into token counts ##
                         data = etree.fromstring(note.content, parser)
 
                         n = { '_id':note.guid, '_id_user':user_id, 
@@ -263,7 +262,8 @@ class EvernoteConnector(object):
                             'tokens_content': text_processer(data),
                             }
                         notes.append(n)
-                # insert the  note in its own collection because maybe large note data string?
+                # insert the  note in its own collection 
+                # because maybe large note data string?
                 notes_id = self.mongo.notes.insert(notes)
 
     def resync_db(self):
@@ -298,9 +298,6 @@ class EvernoteConnector(object):
                     # collection 
                     self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
 
-    def update_user_db(self):
-        pass
-
     def remove_from_db(self):
         """ Removes a note's content from the database
         """
@@ -329,7 +326,6 @@ class EvernoteConnector(object):
         content += '</en-note>'
         return content
     
-
 ### Analytic ###
 ################
 
@@ -504,6 +500,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         a user's profile. 
         Ideas:
             By time, cluster and not just a single object?
+            Note html links in their own counter?
         """
         c = Counter()
 

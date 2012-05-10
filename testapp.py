@@ -104,15 +104,13 @@ class TestEvernoteWrapper(unittest.TestCase):
         self.assertIn('this is the body',self.en.get_note_content(note))
         self.assertIsNotNone(note.guid)
         self.en.delete_note(note)
-        ### TODO: test for copying and different updating 
-        ##self.assertEqual(1, self.en.get_notelist().totalNotes)
+        # TODO: test for copying and different updating 
 
         note = self.en.create_note('first test note', 'this is the body of the stuff')
         newnote = self.en.update_note(note,content='new test body', title='a new title')
         self.assertIn('new test body', self.en.get_note_content(note))
         self.assertEqual('a new title',newnote.title)
         self.en.delete_note(newnote)
-        #self.assertEqual(1, self.en.get_notelist().totalNotes)
 
     def test_syncing_initial(self):
         note = self.en.create_note('test', 'this is the body of test')
@@ -178,7 +176,8 @@ class TestEvernoteAnalytic(unittest.TestCase):
 
     def test_analytic_word_count(self):
         """ Word count depends on mongo find syntax and note_filters 
-        TODO TESTS:
+        TODO TESTS: 
+            Test for note resource text being counted too
         """
         note = self.en.create_note('test', 'this is the body of test 2')
         note = self.en.create_note('test', 'this is the body of test')
