@@ -83,15 +83,13 @@ class EvernoteConnector(object):
 
     mongo.users:
         {_id: user_id} =  user guid
-        {bool_lsa: False}  =  a boolean for lsa analysis. 
     mongo.notes:
         {_id_user: self.user_id} = the owner's guid
         {str_title: note.title} = note title 
         {_id_notebook: note.notebook} = this note's notebook guid 
         {_id_tags: [note.tags]} =  the array of tags this note 
+        {str_tags: [tag_names]} = array of actuall tag names
         {str_content: note.content} = note content
-        {tokens_content: [~note.content.split()]} =  the extracted words for this note
-        {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
 
     TODO:
         Error checking, alot of it, that's the whole reseason behind the verbose
@@ -136,7 +134,6 @@ class EvernoteConnector(object):
         return self.note_client.createNote(self.auth_token, note)
 
     def update_note(self, note, **kwargs):
-
         for key, value in kwargs.iteritems():
             setattr(note, key, value)
         if kwargs.get('content',False):
@@ -233,6 +230,9 @@ class EvernoteConnector(object):
         encounters an unseen user.
         Returns the _id for the new user
         """
+        resource_string = None
+        tag_names = None
+        
         parser = etree.HTMLParser(target=BasicXmlExtract())
         # already have a user just rsync
         if self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
@@ -252,14 +252,27 @@ class EvernoteConnector(object):
                 for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if note.active:
-                        ## Parsing data with lxml into token counts ##
-                        data = etree.fromstring(note.content, parser)
+                        ## Parsing data with lxml into a big string ##
+                        data_string = etree.fromstring(note.content, parser)
+                        ## add tag string names from this notebook if they are in this note
+                        if note.tagGuids:
+                            tag_names = [tag.name for tag in \
+                                self.note_client.listTagsByNotebook(
+                                self.auth_token,note.notebookGuid) if tag.guid
+                                in note.tagGuids]
+                        if note.resources:
+                            resource_string = text_processer(
+                                    " ".join([self.note_client.getResourceSearchText(
+                                self.auth_token,r.guid) for r in
+                                note.resources]))
 
                         n = { '_id':note.guid, '_id_user':user_id, 
                             '_id_notebook':note.notebookGuid,
                             'str_title':note.title,'_id_tags':note.tagGuids,
+                            'str_tags': tag_names,
                             'str_content':note.content, 
-                            'tokens_content': text_processer(data),
+                            'tokens_content': text_processer(data_string),
+                            'tokens_resources': resource_string,
                             }
                         notes.append(n)
                 # insert the  note in its own collection 
@@ -270,6 +283,7 @@ class EvernoteConnector(object):
         """ Performs the syncing if we already have initialized 
         TODO: also sync Analytic methods
         """
+        tag_names = None
         parser = etree.HTMLParser(target=BasicXmlExtract())
         for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
 
@@ -286,13 +300,29 @@ class EvernoteConnector(object):
                     if not note.active:
                         inactive_notes.append(note.guid)
                     data = etree.fromstring(note.content, parser)
-                    n = { '_id':note.guid, '__id_user':self.user_id, 
-                        '_id_notebook':note.notebookGuid,
+                    ## add tag string names from this notebook if they are in this note
+                    if note.tagGuids:
+                        tag_names = [tag.name for tag in \
+                                self.note_client.listTagsByNotebook(
+                                self.auth_token,note.notebookGuid) if tag.guid
+                                in note.tagGuids]
+                    else:
+
+                    if note.resources:
+                        resource_string = text_processer(
+                                " ".join([self.note_client.getResourceSearchText(
+                                self.auth_token,r.guid) for r in
+                                note.resources]))
+                    else:
+                        resource_string = None
+                    self.mongo.notes.update({'_id':note.guid},
+                        {"$set":{
+                        '__id_user':self.user_id, '_id_notebook':note.notebookGuid,
                         'str_title':note.title,'_id_tags':note.tagGuids,
-                        'str_content':note.content, 
+                        'str_tags': tag_names, 'str_content':note.content, 
                         'tokens_content' :text_processer(data),
-                        }
-                    self.mongo.notes.update({'_id':note.guid},n,  upsert=True)
+                        'tokens_resources': resource_string,
+                        }},  upsert=True)
                     new_notes.append(note.guid)
                 if inactive_notes:
                     # collection 
@@ -351,6 +381,13 @@ class EvernoteProfileInferer(EvernoteConnector):
         perhaps pickling the objects and saving them for a week or something, or
     go all out and store full user state, and continually update the corpus and
     docs?.
+    Added to mongo scheme:
+        mongo.users:
+            {bool_lsa: False}  =  a boolean for lsa analysis. 
+        mongo.notes:
+            {tokens_content: [~note.content.split()]} =  the extracted words for this note
+            {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
+
 
     http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
     """ 
@@ -390,7 +427,7 @@ class EvernoteProfileInferer(EvernoteConnector):
             corpus = Corpus(docs)
 
         # picked arbitrarily
-        corpus.reduce(50)
+        corpus.reduce(25)
         vectors = corpus.lsa.vectors
         #doc.id and dic of concept vectors
         for doc, conc in vectors.items():
@@ -418,7 +455,6 @@ class EvernoteProfileInferer(EvernoteConnector):
             # we have not done lsa before, do it now
             self._lsa_extract()
         if filterargs.keys():
-            # check if lsa has already been done
         
             for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens_lsa':1}):
                 note_words[(x['_id'])] = x['tokens_lsa']
@@ -489,11 +525,32 @@ class EvernoteProfileInferer(EvernoteConnector):
                 f = getattr(self,service+'_knowledge','wiki_knowledge')
                 return f(note_guid, query, data) 
 
-    def fix_data(self, training_data, testing_data):
-        """ Uses classification to suggest labels to the data according to the
-        learned classifications.
+    def suggest_tags(self, ):
+        """ Uses cosine similarity to suggest tags to the note 
+        IDEAS:
+            more weight for same notebook
+            more weight for relative creation time
         """
-        pass
+        corrected_notes = {}
+
+        if not self.mongo.users.find_one({'_id':self.user_id, 'bool_lsa':True},{'bool_lsa':1}):
+            # we have not done lsa before, do it now we want a fast KNN
+            self._lsa_extract()
+        
+        corpus = Corpus.load(cls, '/data/corpus/'+str(self.user_id))
+        ## only untagged notes
+        untaged_notes = self.mongo.notes.find({'_id_tags':None},{})
+        for note in untaged_notes:
+            suggested_tags =  set()
+            # get the doc from the corpus
+            for weight, doc in corpus.nearest_neigbors(corpus[(note['_id'])], top=5):
+                # get the similar doc
+                tags = self.mongo.notes.find_one(
+                        {'_id':doc.id},{'str_tags':1}).get('str_tags')
+                if tags:
+                    suggested_tags.update(tags)
+            corrected_notes[(note['_id'])] = suggested_tags
+        return corrected_notes
 
     def word_count(self, **filterargs):
         """ Counts the total number of words in some sort of content of 
@@ -578,6 +635,3 @@ class EvernoteProfileInferer(EvernoteConnector):
  
 if __name__ == "__main__":
     pass
-
-
-

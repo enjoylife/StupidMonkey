@@ -2,7 +2,7 @@
 
 #from coverage import coverage
 import unittest
-from cherrypy.test.webtest import WebCase
+#from cherrypy.test.webtest import WebCase
 #cov = coverage(source = ['enwrapper.py'])
 #cov.start()
 from enwrapper import *
