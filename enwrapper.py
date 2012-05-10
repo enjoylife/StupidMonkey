@@ -139,47 +139,48 @@ class EvernoteConnector(object):
 
         for key, value in kwargs.iteritems():
             setattr(note, key, value)
-        if kwargs.get('content',None):
+        if kwargs.get('content',False):
             note.content = self._formatNoteContent(note.content)
         return self.note_client.updateNote(self.auth_token, note)
 
     def delete_note(self, note):
-        return self.update_note(note, active=False, deleted=int(time.time()*1000))
+        return self.update_note(note=note, active=False, deleted=int(time.time()*1000))
 
     def get_trash_notes(self):
-        return self.yield_note_list_content(self.get_notelist(0, inactive=True))
+        return self.yield_note_list_content(self.get_notelist(inactive=True))
 
     def empty_trash(self):
         self.note_client.expungeInactiveNotes(self.auth_token)
 
     ### Querying ###
 
+
     def get_note_content(self, note):
         return self.note_client.getNoteContent(self.auth_token, note.guid)
 
-    def get_notelist(self, intial = 0, filter_dic=None):
-        filter = NoteStore.NoteFilter(filter_dic)
+    def get_notelist(self, initial = 0, **filterargs):
+        filter = NoteStore.NoteFilter(**filterargs)
         
         note_list =  self.note_client.findNotes(
-                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX)
+                self.auth_token, filter, initial, Limits.EDAM_USER_NOTES_MAX)
         return note_list 
 
-    def get_notelist_meta(self, intial = 0, filter_dic=None):
-        filter = NoteStore.NoteFilter(filter_dic)
+    def get_notelist_meta(self, initial = 0, **filterargs):
+        filter = NoteStore.NoteFilter(**filterargs)
         resultSpec = NoteStore.NotesMetadataResultSpec(
                 includeTitle=True,includeNotebookGuid=True, includeTagGuids=True)
         
         note_list =  self.note_client.findNotesMetadata(
-                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX,
+                self.auth_token, filter, initial, Limits.EDAM_USER_NOTES_MAX,
                 resultSpec)
         return note_list 
 
-    def get_notelist_guid_only(self, intial = 0, filter_dic=None):
-        filter = NoteStore.NoteFilter(filter_dic)
+    def get_notelist_guid_only(self, initial = 0, **filterargs):
+        filter = NoteStore.NoteFilter(**filterargs)
         resultSpec = NoteStore.NotesMetadataResultSpec()
         
         note_list =  self.note_client.findNotesMetadata(
-                self.auth_token, filter, intial, Limits.EDAM_USER_NOTES_MAX,
+                self.auth_token, filter, initial, Limits.EDAM_USER_NOTES_MAX,
                 resultSpec)
         return note_list 
 
@@ -192,13 +193,12 @@ class EvernoteConnector(object):
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
 
-    def yield_note_content_meta(self, intial=0, filter_dic=None):
+    def yield_note_content_meta(self, initial=0, **filterargs):
         """ Yields a  note plus content from a meta data object that has the
         notebooks, and tag guids as well as title 
         """
-        filter = NoteStore.NoteFilter(filter_dic)
         
-        note_list =  self.get_note_list_meta(intial,filter_dic)
+        note_list =  self.get_note_list_meta(initial,**filterargs)
         for note in note_list.notes:
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
@@ -206,7 +206,7 @@ class EvernoteConnector(object):
     ### Syncing ###
     # used for reducing resource and process time for Analytics
 
-    def yield_sync(self,expunged=False ,intial=0):
+    def yield_sync(self,expunged=False ,initial=0):
         """ Gathers any  content for this class to use 
         TODO: 
             Retrieve more by adding more to the SyncChunkFilter.
@@ -215,9 +215,9 @@ class EvernoteConnector(object):
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
                 includeNotes=True )
         while more:
-            new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token,intial,
+            new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token,initial,
                     1000,filter)
-            intial = new_stuff.chunkHighUSN
+            initial = new_stuff.chunkHighUSN
             ## check to see if anymore stuff
             if  new_stuff.chunkHighUSN == new_stuff.updateCount:
                 more = False
@@ -226,7 +226,7 @@ class EvernoteConnector(object):
             yield new_stuff
 
     def initialize_db(self):
-        """ Performs the intial content gathering when the database
+        """ Performs the initial content gathering when the database
         encounters an unseen user.
         Returns the _id for the new user
         """
@@ -265,7 +265,7 @@ class EvernoteConnector(object):
     def resync_db(self):
         """ Performs the syncing if we already have initialized """
         parser = etree.HTMLParser(target=BasicXmlExtract())
-        for new_stuff in self.yield_sync(expunged=True, intial=self.latest_usn):
+        for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
 
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
@@ -403,7 +403,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         ## this might block for a while. TODO: split it into a new thread
         corpus.save('/data/corpus/'+str(self.user_id))
 
-    def topic_summary(self, note_filter=None):
+    def topic_summary(self, **filterargs):
         """ Returns what are the main features that make up this topic.
         Features, setiment analysis, lsa main features, time deltas,
         could be any  mashup of other statistical technique.
@@ -416,30 +416,35 @@ class EvernoteProfileInferer(EvernoteConnector):
         if not self.mongo.users.find_one({'_id':self.user_id},{'bool_lsa':1}).get('bool_lsa'):
             # we have not done lsa before, do it now
             self._lsa_extract()
-        if not note_filter:
+        if filterargs.keys():
             # check if lsa has already been done
         
             for x in self.mongo.notes.find({'_id_user':self.user_id},{'tokens_lsa':1}):
                 note_words[(x['_id'])] = x['tokens_lsa']
             return note_words
            
-        note_filter = NoteStore.NoteFilter(note_filter)
-        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        meta_list = [x.guid for x in self.get_notelist_guid_only(**filterargs).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}}, {'tokens_lsa':1}):
             note_words[(x['_id'])] = x['tokens_lsa']
         return note_words
 
-    def wiki_knowledge(self,data):
+    #def wiki_knowledge(self, data):
+    def wiki_knowledge(self, note_guid, query, data):
         """ Helper for storing a pattern wiki search query object. 
-        Must return the newly """
+        Must return the newly creaded data object  """
         document = {}
-        # wiki intra links
+        document['title'] = data.title
+        # links to other perhaps simialr topics
         document['intra_links'] = data.links[:5]
+        # outside learning?
         document['extern_links'] = data.external[:5]
         # only want first section not a huge file
         document['data'] = data.sections[0].content
-        return document
-
+        self.mongo.notes.update(
+                {'_id':note_guid, 'knowledge.str_query':query}, 
+                {'set':{ 'wikipedia':document}})
+        # to set a constistant method call across all knowledge funcs??
+        return  {'wikipedia':document}
 
     def outside_knowledge(self, note_guid, query,  service=None):
         """ Gather resources that are related to this note from other services.
@@ -448,7 +453,7 @@ class EvernoteProfileInferer(EvernoteConnector):
             note_guid
             query = the string that you want searched for
             service = (optional) which service to query, default wikipedia
-        mongo.notes outside_knowledge scheme layout
+        mongo.notes{ knowledge scheme layout
         "An doc of  of past query strings that contain result objects with service
         specific data.
         {knowledge: 
@@ -464,22 +469,32 @@ class EvernoteProfileInferer(EvernoteConnector):
         }
         """
         # retrive note that has this query string embedded
+        # return only the embedded query doc?
         note = self.mongo.notes.find_one(
                 {'_id':note_guid, 'knowledge.str_query':query}, 
                     {'knowledge.str_query':1})
+        # query returned sucessful
         if note and service:
             return note[service]
         elif note:
             return note
+        # failed, must not have done it before
         else:
+            # get the search engine attached to the class
             api = getattr(self, service, 'wiki')
-            data = api.search(query,cached=False,timeout=10) 
+            data = api.search(query,cached=True,timeout=10) 
             if data:
                 #call the right method for this service
-                return getattr(self,service+ '_knowledge','wiki_knowledge')(data) 
+                f = getattr(self,service+'_knowledge','wiki_knowledge')
+                return f(note_guid, query, data) 
 
+    def fix_data(self, training_data, testing_data):
+        """ Uses classification to suggest labels to the data according to the
+        learned classifications.
+        """
+        pass
 
-    def word_count(self, note_filter=None):
+    def word_count(self, **filterargs):
         """ Counts the total number of words in some sort of content of 
         a user's profile. 
         Ideas:
@@ -487,38 +502,17 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         c = Counter()
 
-        if not note_filter:
+        if not filterargs.keys():
             for x in self.mongo.notes.find(
                     {'_id_user':self.user_id},{'tokens_content':1}):
                 c.update(x['tokens_content'])
             return c
 
-        note_filter = NoteStore.NoteFilter(note_filter)
-        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
+        meta_list = [x.guid for x in self.get_notelist_guid_only(**filterargs).notes]
         for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
                 {'tokens_content':1}):
             c.update(x['tokens_content'])
         return c
-    
-    def readability(self, note_filter=None):
-        """ Computes a score based upon what an douchebag would mark you
-        down for when student critiqing papers.
-        Ideas:
-            pattern.metrics.flesh_reading_ease
-        """
-        output={}
-        if not note_filter:
-            for x in self.mongo.notes.find(
-                    {'_id_user':self.user_id},{'str_content':1}):
-                output[(x['_id'])] = flesch_reading_ease(x['str_content'])
-        return output
-
-        note_filter = NoteStore.NoteFilter(note_filter)
-        meta_list = [x.guid for x in self.get_notelist_guid_only(note_filter).notes]
-        for x in self.mongo.notes.find(
-                {'_id':{'$in':meta_list}}, {'str_content':1}):
-            output[(x['_id'])] = flesch_reading_ease(x['str_content'])
-        return output
     
     def word_importance(self, word):
         """ How important is this word/phrases, or more techniquely what is the
@@ -543,7 +537,6 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         pass
 
-
     def average_location_of(self,obj):
         """ Using lat, long coordinetes detrmine the places where the most data
         is coming from. 
@@ -561,12 +554,29 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         pass
 
-    def fix_data(self, training_data, testing_data):
-        """ Uses classification to suggest labels to the data according to the
-        learned classifications.
+    def readability(self, **filterargs):
+        """ Computes a score based upon what an douchebag would mark you
+        down for when student critiqing papers.
+        Ideas:
+            pattern.metrics.flesh_reading_ease
         """
-        pass
+        output={}
+        if not filterargs.keys():
+            for x in self.mongo.notes.find(
+                    {'_id_user':self.user_id},{'str_content':1}):
+                output[(x['_id'])] = flesch_reading_ease(x['str_content'])
+        return output
+
+        meta_list = [x.guid for x in self.get_notelist_guid_only(**filterargs).notes]
+        for x in self.mongo.notes.find(
+                {'_id':{'$in':meta_list}}, {'str_content':1}):
+            output[(x['_id'])] = flesch_reading_ease(x['str_content'])
+        return output
+
  
 if __name__ == "__main__":
-    pass
+    filter = NoteStore.NoteFilter(words='intitle:body')
+    print filter
+
+
 
