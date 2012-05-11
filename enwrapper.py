@@ -73,7 +73,6 @@ def en_notestore_setup(user_note_store_url):
 
 ### Main ###
 ############
-
 class EvernoteConnector(object):
     """ This is to ease the connection to the evernote thrift api, and provide a
     mongo database layer for speeding up requests for analytic content or just
@@ -117,15 +116,11 @@ class EvernoteConnector(object):
             pass
 
         self.note_client = en_notestore_setup(noteStoreUrl)
+
         # evernote  data for api and sync calls
         self.user_id = self.user_client.getUser(self.auth_token).id
-        self.latest_usn = 0 
-        self.last_updated = 0
-        # for properties
-        self._default = False
-        self._user= False
-
         self.mongo = mongohandle
+        self.initialize_db()
 
     @property
     def user(self):
@@ -234,10 +229,28 @@ class EvernoteConnector(object):
 
     @property
     def need_sync(self):
-        """ Determines if this user needs to sync with evernotes servers. """
+        """ Determines if this user needs to sync with evernotes servers. 
+        TODO: put latest_usn and last_updated into class properties that call
+        mongo.users"""
         syncState = self.note_client.getSyncState(self.auth_token)
         return (self.last_updated < syncState.fullSyncBefore) or \
                 (self.latest_usn < syncState.updateCount)
+
+    @property
+    def latest_usn(self):
+        return mongo.users.find_one({'_id':self.user_id},{'latest_usn':1}) or 0
+
+    @latest_usn.setter
+    def latest_usn(self, usn):
+        mongo.users.update({'_id:':self.user_id}, {'$set':{'latest_usn':usn}})
+
+    @property
+    def last_updated(self):
+        return mongo.users.find_one({'_id':self.user_id},{'last_updated':1}) or 0
+
+    @last_updated.setter
+    def last_updated(self, time):
+        mongo.users.update({'_id:':self.user_id}, {'$set':{'last_updated':usn}})
 
     def yield_sync(self,expunged=False ,initial=0):
         """ Gathers any  content for this class to use 
@@ -322,10 +335,15 @@ class EvernoteConnector(object):
 
     def resync_db(self):
         """ Performs the syncing if we already have initialized 
+        Returns the resynced note guids
         TODO: also sync Analytic methods
         """
         tag_names = None
+        resource_string = None
+        new_note_guids = []
         parser = etree.HTMLParser(target=BasicXmlExtract())
+        if not self.need_sync:
+            return None
         for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
 
             if new_stuff.expungedNotes:
@@ -336,6 +354,7 @@ class EvernoteConnector(object):
             if new_stuff.notes:
                 new_notes = []
                 inactive_notes =[]
+                new_note_guids.append(note.guid)
                 for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if not note.active:
@@ -347,15 +366,12 @@ class EvernoteConnector(object):
                                 self.note_client.listTagsByNotebook(
                                 self.auth_token,note.notebookGuid) if tag.guid
                                 in note.tagGuids]
-                    else:
 
                     if note.resources:
                         resource_string = text_processer(
                                 " ".join([self.note_client.getResourceSearchText(
                                 self.auth_token,r.guid) for r in
                                 note.resources]))
-                    else:
-                        resource_string = None
                     self.mongo.notes.update({'_id':note.guid},
                         {"$set":{
                         '__id_user':self.user_id, '_id_notebook':note.notebookGuid,
@@ -368,6 +384,7 @@ class EvernoteConnector(object):
                 if inactive_notes:
                     # collection 
                     self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
+        return new_note_guids
 
     def remove_from_db(self):
         """ Removes a note's content from the database
@@ -384,10 +401,8 @@ class EvernoteConnector(object):
         content += '<en-note>' + innerContent
         content += '</en-note>'
         return content
-    
-### Analytic ###
-################
 
+### Analytic subclass
 class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info
     hidden within the cloud of data from the Evernote service.
@@ -395,46 +410,72 @@ class EvernoteProfileInferer(EvernoteConnector):
     Holds a self.wiki search class to provide searching for related wiki
     articles
 
-    Analytic method importance:
-    1. topic_summary
-    2. outside_knowledge
-    3. fix_data
-    4. learning_process
-
     Ideas:
         Boxplot over all users in a certain method, so you would show their
     totals but then also show how that number is relative to others. Maybe this
     should be an ABC?
+    http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
 
     Caching: 
         perhaps pickling the objects and saving them for a week or something, or
     go all out and store full user state, and continually update the corpus and
-    docs?.
-    Added to mongo scheme:
-        mongo.users:
-            {bool_lsa: False}  =  a boolean for lsa analysis. 
-        mongo.notes:
-            {tokens_content: [~note.content.split()]} =  the extracted words for this note
-            {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
+    docs? Right now the corpus object is pickled into a basic file, we could
+    better yet connect to a mongo GridFS and store it their?
 
+    These are the fields used in the mongo collections 
+    mongo.users:
+        {_id: user_id} 
+        {bool_lsa: False}  =  a boolean for lsa analysis. 
 
-    http://stackoverflow.com/questions/2775864/python-datetime-to-unix-timestamp
+    mongo.notes:
+        {_id_user: self.user_id} 
+        {str_title: note.title}  
+        {_id_notebook: note.notebook} 
+        {_id_tags: [note.tags]} 
+        {str_tags: [tag_names]}
+        {str_content: note.content}
+
+        {tokens_content: [~note.content.split()]} =  the extracted words for this note
+        {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
     """ 
 
     def __init__(self, base_uri, note_url, mongohandle):
+        """ Create the wipedia search object 
+        """
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
         self.wiki = Wikipedia(language='en')
 
-    def _lsa_extract(self, update_guids=None):
-        """ runs lsa on a user and creates corpus or updates a corpus and lsa
+    def load_corpus(self):
+        """ Load a corpus, used because we might change corpus saving and
+        retrieving and with this we can be sure any changes wont affect other
+        methods
+        """
+        return Corpus.load(cls, '/data/corpus/'+str(self.user_id))
+
+    def save_corpus(corpus, update=False):
+        """ Save a corpus, used because we might change corpus saving and
+        retrieving and with this we can be sure any changes wont affect other
+        methods
+        """
+        corpus.save('/data/corpus/'+str(self.user_id), update)
+
+    def sync_corpus(update_guids=None):
+        """Creates  a new corpus on all notes if we dont supply a note guid
+        list, if list, we only updates a corpus.
         TODO:
             Store other data in the corpus besides basic text content, ie,
             extracted image, attribute note data, etc...
+            catch corpus not found file error?
         """
         docs =[]
-        # update the corpus with the only these notes
-        if update_guids:
-            corpus = Corpus.load(cls, '/data/corpus/'+str(self.user_id))
+        old_corpus =  self.mongo.users.find_one({'_id':self.user_id},
+                {'corpus':1}).get('corpus')
+        # make sure we already created corpus
+        if old_corpus and self.need_sync:
+            if not update_guids:
+                # nothing given to update
+                return
+            corpus = self.load_corpus()
             # only those that need to be updated from the update_guids
             for x in self.mongo.notes.find(
                     {'_id':{'$in':update_guids}},{'tokens_content':1,'str_title':1}):
@@ -446,15 +487,29 @@ class EvernoteProfileInferer(EvernoteConnector):
                 # remove old doc because corpus will still have old content
                 corpus.remove(d)
             corpus.extend(docs)
-
-        else: # LSA not been done before
+            self.save_corpus(corpus)
+        # dont need the sync, do nothing
+        elif old_corpus:
+            return
+        # not been done before
+        else: 
             for x in self.mongo.notes.find( # all notes of this user
                         {'_id_user':self.user_id},{'tokens_content':1,'str_title':1}):
                     d =  Document(x['tokens_content'],name=x['str_title'],top=30)
                     d._id = x['_id']
                     docs.append(d)
             corpus = Corpus(docs)
+            self.save_corpus(corpus)
+            self.mongo.users.update({'_id':self.user_id},{'$set':{'corpus':True}})
 
+    def _lsa_extract(self, update_guids=None):
+        """ runs lsa on a user and creates  a new corpus on all notes if we dont
+        supply a note guid list, if list, we only updates a corpus.
+        TODO:
+            Store other data in the corpus besides basic text content, ie,
+            extracted image, attribute note data, etc...
+        """
+        corpus = self.load_corpus()
         # picked arbitrarily
         corpus.reduce(25)
         vectors = corpus.lsa.vectors
@@ -469,7 +524,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         # boolean to signal lsa has been done
         self.mongo.users.update({'_id':self.user_id},{'$set':{'tokens_lsa':True}})
         ## this might block for a while. TODO: split it into a new thread
-        corpus.save('/data/corpus/'+str(self.user_id))
+        self.save_corpus(corpus,update=True)
 
     def topic_summary(self, **filterargs):
         """ Returns what are the main features that make up this topic.
