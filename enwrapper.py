@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import sys
 import time
 import re
@@ -63,7 +64,7 @@ def en_userstore_setup(enviroment):
 def en_notestore_setup(user_note_store_url):
     """ Simplifies the obnoxious Thrift setup functions
     Param: the url for a user from an auth request
-    Returns: a  user's notestore client.
+    Returns: a notestore client.
     """
     nstore =  NoteStore.Client(
             TBinaryProtocol.TBinaryProtocol(
@@ -75,49 +76,63 @@ def en_notestore_setup(user_note_store_url):
 
 class EvernoteConnector(object):
     """ This is to ease the connection to the evernote thrift api, and provide a
-    cache layer for reducing calls to the Evernote servers.
+    mongo database layer for speeding up requests for analytic content or just
+    straight up  reducing calls to the Evernote servers.
 
     Naming convention of the public methods is to be pep8, which is  
-    to help distinguish between the layers of this class and the thrift
-    generated classes.
+    to help distinguish between the methods of this class and the thrift
+    generated classes, in which they use camelCase.
 
+    These are the fields used in the mongo collections 
     mongo.users:
         {_id: user_id} =  user guid
     mongo.notes:
         {_id_user: self.user_id} = the owner's guid
         {str_title: note.title} = note title 
         {_id_notebook: note.notebook} = this note's notebook guid 
-        {_id_tags: [note.tags]} =  the array of tags this note 
-        {str_tags: [tag_names]} = array of actuall tag names
+        {_id_tags: [note.tags]} =  the array of tags  guids 
+        {str_tags: [tag_names]} = array of actual tag names
         {str_content: note.content} = note content
 
     TODO:
-        Error checking, alot of it, that's the whole reseason behind the verbose
-        method calling.
-        caching of Analytic methods too.
+        1. Error checking, alot of it, that's the whole reseason behind the verbose
+       method calling.
+        2. storing of time info for both resource and note content.
     """
 
     def __init__(self, base_uri, note_url, mongohandle):
+        """ We must create the user and note clients in order to get access to
+        the Evernote API.
+        """
         self.user_client = en_userstore_setup(base_uri)
+
         # Get the URL used to interact with the contents of the user's account
+        # but first check and see if were still using dev token
         if note_url is  AUTHTOKEN:
             noteStoreUrl = self.user_client.getNoteStoreUrl(AUTHTOKEN)
+            # set the auth_token for all later api calls
             self.auth_token = AUTHTOKEN
-        #TODO oauth handshake
+        else:
+            #TODO oauth handshake
+            pass
+
         self.note_client = en_notestore_setup(noteStoreUrl)
-
-        self.mongo = mongohandle
-
+        # evernote  data for api and sync calls
         self.user_id = self.user_client.getUser(self.auth_token).id
         self.latest_usn = 0 
         self.last_updated = 0
-
         # for properties
         self._default = False
         self._user= False
 
+        self.mongo = mongohandle
+
     @property
     def user(self):
+        """ returns the user object from evernote 
+        TODO:
+            Currently only used for the user's guid so it could just be a stored
+            variable on this class, rather than calling the getUser everytime."""
         return self.user_client.getUser(self.auth_token)
 
     ### Editing / Testing Helpers ###
@@ -128,12 +143,10 @@ class EvernoteConnector(object):
         # cant contain extra whitespace
         note.title = title.strip()
         note.content = self._formatNoteContent(content)
-        # evernote wants miliseconds. . . time return seconds
-        #note.created = int(time.time() * 1000)
-        note.updated = note.created
         return self.note_client.createNote(self.auth_token, note)
 
     def update_note(self, note, **kwargs):
+        """ Helper to update the note """
         for key, value in kwargs.iteritems():
             setattr(note, key, value)
         if kwargs.get('content',False):
@@ -147,7 +160,8 @@ class EvernoteConnector(object):
         else:
             return self.note_client.deleteNote(self.autho_token,note)
             
-    def get_trash_notes(self):
+    def trash_notes(self):
+        """ yeilds the inactive notes from this user """
         return self.yield_note_list_content(self.get_notelist(inactive=True))
 
     def empty_trash(self):
@@ -156,9 +170,13 @@ class EvernoteConnector(object):
     ### Querying ###
 
     def get_note_content(self, note):
+        """ Returns a single notes  string content """
         return self.note_client.getNoteContent(self.auth_token, note.guid)
 
     def get_notelist(self, initial = 0, **filterargs):
+        """ Returns a evernote noteList offset by intial and filtered with any
+        extra keyargs that are sent to a NoteFilter.
+        """
         filter = NoteStore.NoteFilter(**filterargs)
         
         note_list =  self.note_client.findNotes(
@@ -166,16 +184,27 @@ class EvernoteConnector(object):
         return note_list 
 
     def get_notelist_meta(self, initial = 0, **filterargs):
+        """ Returns a evernote NotesMetadataList offset by intial and filtered with any
+        extra keyargs that are sent to a NoteFilter.
+        Fields that are returned:
+            * Titles
+            * Notebook guid
+            * Tags' guid's
+        """ 
         filter = NoteStore.NoteFilter(**filterargs)
         resultSpec = NoteStore.NotesMetadataResultSpec(
+                # titles, notebooks guid, and tag guids
                 includeTitle=True,includeNotebookGuid=True, includeTagGuids=True)
         
-        note_list =  self.note_client.findNotesMetadata(
-                self.auth_token, filter, initial, Limits.EDAM_USER_NOTES_MAX,
-                resultSpec)
-        return note_list 
+        notes_metadata_list =  self.note_client.findNotesMetadata( self.auth_token,
+                filter, initial, Limits.EDAM_USER_NOTES_MAX, resultSpec)
+        return  notes_metadata_list
 
     def get_notelist_guid_only(self, initial = 0, **filterargs):
+        """ Returns a evernote NotesMetadataList with only the notes' guid's
+        filled in,  offset by intial and filtered with any
+        extra keyargs that are sent to a NoteFilter.
+        """
         filter = NoteStore.NoteFilter(**filterargs)
         resultSpec = NoteStore.NotesMetadataResultSpec()
         
@@ -185,17 +214,14 @@ class EvernoteConnector(object):
         return note_list 
 
     def yield_notelist_content(self, note_list):
-        """Helper to keep huge note contents out of memory.
-        TODO: 
-        limits and offsets, yeild whole content, pass in whole filter
-        """
+        """Helper to keep huge note contents out of memory. """
         for note in note_list:
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
 
     def yield_note_content_meta(self, initial=0, **filterargs):
-        """ Yields a  note plus content from a meta data object that has the
-        notebooks, and tag guids as well as title 
+        """ Yields a note plus content from a noteMetadata object that has it's
+        fields filled in according to the self.get_notelist_meta function.
         """
         
         note_list =  self.get_note_list_meta(initial,**filterargs)
@@ -206,17 +232,26 @@ class EvernoteConnector(object):
     ### Syncing ###
     # used for reducing resource and process time for Analytics
 
+    @property
+    def need_sync(self):
+        """ Determines if this user needs to sync with evernotes servers. """
+        syncState = self.note_client.getSyncState(self.auth_token)
+        return (self.last_updated < syncState.fullSyncBefore) or \
+                (self.latest_usn < syncState.updateCount)
+
     def yield_sync(self,expunged=False ,initial=0):
         """ Gathers any  content for this class to use 
-        TODO: 
-            Retrieve more by adding more to the SyncChunkFilter.
-            """
+        Fields that are returned:
+            * Notes
+            * expunged (if expunged is True)
+            * TODO....
+        """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
                 includeNotes=True )
         while more:
             new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token,initial,
-                    1000,filter)
+                    100,filter)
             initial = new_stuff.chunkHighUSN
             ## check to see if anymore stuff
             if  new_stuff.chunkHighUSN == new_stuff.updateCount:
@@ -226,9 +261,14 @@ class EvernoteConnector(object):
             yield new_stuff
 
     def initialize_db(self):
-        """ Performs the initial content gathering when the database
-        encounters an unseen user.
-        Returns the _id for the new user
+        """ Performs the initial content retrieval when the database
+        encounters an unseen user.The amount of content
+        and certain types returned are determined by the
+        self.yield_notelist_content
+
+        Returns the mongo.users _id  for the new user if this is really the
+        first time we have seen this user, else it returns None and just calls
+        self.resync_db
         """
         resource_string = None
         tag_names = None
@@ -278,6 +318,7 @@ class EvernoteConnector(object):
                 # insert the  note in its own collection 
                 # because maybe large note data string?
                 notes_id = self.mongo.notes.insert(notes)
+        return user_id
 
     def resync_db(self):
         """ Performs the syncing if we already have initialized 
@@ -332,18 +373,6 @@ class EvernoteConnector(object):
         """ Removes a note's content from the database
         """
         pass
-
-    def update_corpus(self):
-        """ Updates the users analityc corpus if their is any changes
-        in their note's content.
-        """
-        pass
-
-    @property
-    def need_sync(self):
-        syncState = self.note_client.getSyncState(self.auth_token)
-        return (self.last_updated < syncState.fullSyncBefore) or \
-                (self.latest_usn < syncState.updateCount)
 
     ### Private methods ###
     
@@ -632,6 +661,11 @@ class EvernoteProfileInferer(EvernoteConnector):
             output[(x['_id'])] = flesch_reading_ease(x['str_content'])
         return output
 
+    def update_corpus(self):
+        """ Updates the users analityc corpus if their is any changes
+        in their note's content.
+        """
+        pass
  
 if __name__ == "__main__":
     pass
