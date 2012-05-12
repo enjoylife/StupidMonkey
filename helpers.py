@@ -6,6 +6,11 @@ from collections import Counter
 from Stemmer import Stemmer
 import unicodedata
 
+from pymongo import Connection 
+from bson import json_util
+from pymongo.errors import ConnectionFailure, OperationFailure
+
+
 def mongo_connect(name,extra=False):
     """ 
     Connect to a MongoDB database, and write to stdio if failure. 
@@ -63,6 +68,7 @@ def ngrams(tokens, MIN_N, MAX_N):
 TABLE = string.maketrans("","")
 STOPLIST =  gen_stops()
 STEMMER = Stemmer('english')
+
 
 def text_processer(doc,punc=True):
     """ Alot of python magic and helpers in this list comprehension

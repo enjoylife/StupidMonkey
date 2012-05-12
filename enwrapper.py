@@ -122,7 +122,7 @@ class EvernoteConnector(object):
             # when using self.yeild_sync in initialize_db() 
             self.resync_db()
             self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
-
+        self.resync_db()
     @property
     def user(self):
         """ returns the user object from evernote 
