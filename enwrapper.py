@@ -16,16 +16,12 @@ import evernote.edam.type.ttypes as Types
 import evernote.edam.error.ttypes as Errors
 import evernote.edam.limits.constants as Limits
 
-from helpers import BasicXmlExtract, text_processer, flesch_reading_ease
+from helpers import (BasicXmlExtract, text_processer, flesch_reading_ease)
 
 from lxml import etree
 
 from pattern.web import Wikipedia
 from pattern.vector import Corpus, Document
-
-from pymongo import Connection 
-from bson import json_util
-from pymongo.errors import ConnectionFailure, OperationFailure
 
 __all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
         'en_userstore_setup', 'en_notestore_setup',
@@ -120,7 +116,12 @@ class EvernoteConnector(object):
         # evernote  data for api and sync calls
         self.user_id = self.user_client.getUser(self.auth_token).id
         self.mongo = mongohandle
-        self.initialize_db()
+        if not self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
+            self.initialize_db()
+            #TODO: fix this bug where I have to resync because highUSN is None
+            # when using self.yeild_sync in initialize_db() 
+            self.resync_db()
+            self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
 
     @property
     def user(self):
@@ -233,43 +234,49 @@ class EvernoteConnector(object):
         TODO: put latest_usn and last_updated into class properties that call
         mongo.users"""
         syncState = self.note_client.getSyncState(self.auth_token)
-        return (self.last_updated < syncState.fullSyncBefore) or \
-                (self.latest_usn < syncState.updateCount)
+        return (self.last_updated < syncState.fullSyncBefore) or (self.latest_usn < syncState.updateCount)
 
     @property
     def latest_usn(self):
-        return mongo.users.find_one({'_id':self.user_id},{'latest_usn':1}) or 0
+        return self.mongo.users.find_one(
+            {'_id':self.user_id}).get('latest_usn',0)
 
     @latest_usn.setter
-    def latest_usn(self, usn):
-        mongo.users.update({'_id:':self.user_id}, {'$set':{'latest_usn':usn}})
+    def latest_usn(self, u):
+        self.mongo.users.update({'_id':self.user.id},
+                {'$set':{'latest_usn':u}},safe=True)
 
     @property
     def last_updated(self):
-        return mongo.users.find_one({'_id':self.user_id},{'last_updated':1}) or 0
+        return self.mongo.users.find_one(
+            {'_id':self.user_id}).get('last_updated',0)
 
     @last_updated.setter
-    def last_updated(self, time):
-        mongo.users.update({'_id:':self.user_id}, {'$set':{'last_updated':usn}})
+    def last_updated(self, t):
+        self.mongo.users.update({'_id':self.user.id},
+                {'$set':{'last_updated':t}},safe=True)
 
-    def yield_sync(self,expunged=False ,initial=0):
+    def yield_sync(self,initial=0, expunged=False):
         """ Gathers any  content for this class to use 
         Fields that are returned:
             * Notes
             * expunged (if expunged is True)
-            * TODO....
+            * TODO.... more evernote data
         """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
-                includeNotes=True )
+                includeNotes=True, includeResources=True)
         while more:
-            new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token,initial,
-                    100,filter)
-            initial = new_stuff.chunkHighUSN
+            new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token, initial,
+                    256,filter)
+            # carfull if no objects in this chunk this is None and we dont want 
+            # to have a none object for our self.latest_usn
+            if new_stuff.chunkHighUSN:
+                initial = new_stuff.chunkHighUSN
             ## check to see if anymore stuff
-            if  new_stuff.chunkHighUSN == new_stuff.updateCount:
+            if  new_stuff.updateCount == new_stuff.chunkHighUSN or not new_stuff.chunkHighUSN: 
                 more = False
-                self.latest_usn = new_stuff.chunkHighUSN
+                self.latest_usn = initial
                 self.last_updated = new_stuff.currentTime
             yield new_stuff
 
@@ -287,18 +294,14 @@ class EvernoteConnector(object):
         tag_names = None
         
         parser = etree.HTMLParser(target=BasicXmlExtract())
-        # already have a user just rsync
-        if self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
-            return self.resync_db()
-
         user_scaffold =  {
             '_id': self.user.id,
             'bool_lsa':False,
             }
         # create the skeletn
-        user_id = self.mongo.users.insert(user_scaffold)
+        user_id = self.mongo.users.insert(user_scaffold,safe=True)
         ## now lets  go through the iterable of different types   and update 
-        for new_stuff in self.yield_sync():
+        for new_stuff in self.yield_sync(expunged=False, initial=0):
             # hold all the notes till ready to send a batch to mongo
             notes =[]
             if new_stuff.notes:
@@ -354,11 +357,13 @@ class EvernoteConnector(object):
             if new_stuff.notes:
                 new_notes = []
                 inactive_notes =[]
-                new_note_guids.append(note.guid)
                 for note in self.yield_notelist_content(new_stuff.notes):
                     ## dont want to store inactive things
                     if not note.active:
                         inactive_notes.append(note.guid)
+                        continue
+
+                    new_note_guids.append(note.guid)
                     data = etree.fromstring(note.content, parser)
                     ## add tag string names from this notebook if they are in this note
                     if note.tagGuids:
