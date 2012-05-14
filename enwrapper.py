@@ -3,6 +3,7 @@
 import sys
 import time
 import re
+import unicodedata
 from collections import Counter
 
 #evernote Thrift protocol
@@ -122,7 +123,9 @@ class EvernoteConnector(object):
             # when using self.yeild_sync in initialize_db() 
             self.resync_db()
             self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
-        self.resync_db()
+        else:
+            self.resync_db()
+
     @property
     def user(self):
         """ returns the user object from evernote 
@@ -348,6 +351,7 @@ class EvernoteConnector(object):
         if not self.need_sync:
             return None
         for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
+            #    print "GETTING RESYNCED NEW THINGS"
 
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
@@ -448,6 +452,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         """ Create the wipedia search object 
         """
         EvernoteConnector.__init__(self,base_uri, note_url,mongohandle)
+        self.sync_corpus()
         self.wiki = Wikipedia(language='en')
 
     def load_corpus(self):
@@ -457,29 +462,26 @@ class EvernoteProfileInferer(EvernoteConnector):
         """
         return Corpus.load(cls, '/data/corpus/'+str(self.user_id))
 
-    def save_corpus(corpus, update=False):
+    def save_corpus(self,corpus, update=False):
         """ Save a corpus, used because we might change corpus saving and
         retrieving and with this we can be sure any changes wont affect other
         methods
         """
         corpus.save('/data/corpus/'+str(self.user_id), update)
 
-    def sync_corpus(update_guids=None):
-        """Creates  a new corpus on all notes if we dont supply a note guid
-        list, if list, we only updates a corpus.
+    def sync_corpus(self):
+        """Creates  a new corpus on all notes if we already have synced before
         TODO:
             Store other data in the corpus besides basic text content, ie,
             extracted image, attribute note data, etc...
             catch corpus not found file error?
         """
         docs =[]
-        old_corpus =  self.mongo.users.find_one({'_id':self.user_id},
+        corpus_check =  self.mongo.users.find_one({'_id':self.user_id},
                 {'corpus':1}).get('corpus')
         # make sure we already created corpus
-        if old_corpus and self.need_sync:
-            if not update_guids:
-                # nothing given to update
-                return
+        if corpus_check and self.need_sync:
+            update_guids = self.resync_db()
             corpus = self.load_corpus()
             # only those that need to be updated from the update_guids
             for x in self.mongo.notes.find(
@@ -494,9 +496,9 @@ class EvernoteProfileInferer(EvernoteConnector):
             corpus.extend(docs)
             self.save_corpus(corpus)
         # dont need the sync, do nothing
-        elif old_corpus:
+        elif corpus_check:
             return
-        # not been done before
+        # corpus sync has not been done before
         else: 
             for x in self.mongo.notes.find( # all notes of this user
                         {'_id_user':self.user_id},{'tokens_content':1,'str_title':1}):
@@ -554,7 +556,6 @@ class EvernoteProfileInferer(EvernoteConnector):
             note_words[(x['_id'])] = x['tokens_lsa']
         return note_words
 
-    #def wiki_knowledge(self, data):
     def wiki_knowledge(self, note_guid, query, data):
         """ Helper for storing a pattern wiki search query object. 
         Must return the newly creaded data object  """
@@ -565,7 +566,7 @@ class EvernoteProfileInferer(EvernoteConnector):
         # outside learning?
         document['extern_links'] = data.external[:5]
         # only want first section not a huge file
-        document['data'] = data.sections[0].content
+        document['data'] = unicodedata.normalize('NFKD',data.sections[0].content).encode('ascii','ignore')
         self.mongo.notes.update(
                 {'_id':note_guid, 'knowledge.str_query':query}, 
                 {'set':{ 'wikipedia':document}})
@@ -612,7 +613,7 @@ class EvernoteProfileInferer(EvernoteConnector):
             if data:
                 #call the right method for this service
                 f = getattr(self,service+'_knowledge','wiki_knowledge')
-                return f(note_guid, query, data) 
+                return f(note_guid, query, data)
 
     def suggest_tags(self, ):
         """ Uses cosine similarity to suggest tags to the note 

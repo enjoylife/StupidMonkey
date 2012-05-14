@@ -69,7 +69,6 @@ TABLE = string.maketrans("","")
 STOPLIST =  gen_stops()
 STEMMER = Stemmer('english')
 
-
 def text_processer(doc,punc=True):
     """ Alot of python magic and helpers in this list comprehension
      If this is one area where a more precise C implementation would be

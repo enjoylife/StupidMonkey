@@ -30,6 +30,13 @@ from pymongo import Connection
 from bson import json_util
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+import unittest
+
+testuser = {u'first_name': u'Matthew', u'last_name': u'Clemens', u'middle_name': u'Donavan', u'name': u'Matthew Donavan Clemens', u'locale': u'en_US', u'gender': u'male', u'link': u'http://www.facebook.com/people/Matthew-Donavan-Clemens/100000220742923', u'id': u'100000220742923'}
+
+
+
+
 # currently not focusing on this functionality
 #import redis
 #from redis import ConnectionError
@@ -368,17 +375,13 @@ def merge_group(group1, group2, new):
 def new_award(doc, award, scaffold=True):
     """ Used to add a new award into a mongo users Collection 
     as a embedded doc.
-
     Params: 
     doc: query match document
     award: document to add 
     scaffold: Bool, whether to add default scaffold to embedded doc
-
     Success: _id of inserted doc.
     Failure: False if mongo write fails.
     """
-
-
     try:
         if not scaffold:
             return self.db.users.update(doc, {"$push":{'awards':award}},
@@ -396,4 +399,73 @@ def new_award(doc, award, scaffold=True):
     except OperationFailure:
         return False
 
+class TestMongoAPI(unittest.TestCase):
+    
+    @classmethod
+    def setUpClass(cls):
+        pass
+
+    @classmethod
+    def tearDownClass(cls):
+        mongo.users.drop()
+        mongo.goals.drop()
+
+    def setUp(self):
+        mongo.users.remove()
+
+    def test_mongo_user(self):
+        user = User.create(testuser,'facebook')
+        self.assertTrue( user ) 
+        self.assertIsInstance(user , User )
+        self.assertIn('str_name', user.info())
+
+        uid = user._id 
+
+        usersame = User.find(uid)
+        self.assertEqual(usersame.info(), user.info())
+        self.assertIsInstance(user.info(), dict)
+
+        #edit
+        self.assertTrue( user.edit({'str_name':'BurgerKing'}) )
+        self.assertIn('BurgerKing', str(user.info()))
+        self.assertIn('facebook', str(user.info(['str_type'])))
+
+        # Remove does it return True? if so sucessful remove.
+        self.assertTrue( user.delete() )
+        self.assertFalse( user.is_alive)
+        self.assertFalse( user.info())
+        self.assertFalse(User.find(uid))
+
+    def test_mongo_goal(self):
+        pass
+        user = User.create( testuser,'facebook')
+        goal = user.add_goal()
+        self.assertTrue(goal._id)
+
+    def _test_welcome(self):
+        self.getPage('/')
+        self.assertInBody('Hello World')
+
+    def _test_User(self):
+        testuser_id = create_user(mongo,  testuser, 'facebook')
+
+        #make sure that query or url vars are capable
+        self.getPage('/api/user?uid=100000220742923&type=facebook')
+        self.assertInBody('Matthew Donavan Clemens')
+        self.assertInBody('100000220742923')
+
+        self.getPage('/api/user/100000220742923/facebook')
+        self.assertInBody('Matthew Donavan Clemens')
+        self.assertInBody('100000220742923')
+
+        self.getPage('/api/user/')
+
+def suite():
+    suite = unittest.TestSuite()
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMongoAPI))
+    return suite
+if __name__=='__main__':
+    unittest.TextTestRunner(verbosity=2).run(suite())
+    #cov.stop()
+    #cov.report()
 

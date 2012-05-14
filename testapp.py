@@ -25,7 +25,7 @@ class TestEvernoteWrapper(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         print cls.en.mongo.users.find_one()
-        #mongo.connection.drop_database('test')
+        mongo.connection.drop_database('test')
         mongo.users.drop()
         mongo.notes.drop()
         # keep first test note
@@ -92,7 +92,6 @@ class TestEvernoteWrapper(unittest.TestCase):
         mongonote = mongo.notes.find_one({'_id':note.guid})
         self.assertEqual(mongonote['str_content'], self.en.get_note_content(n))
 
-
 class TestEvernoteAnalytic(unittest.TestCase):
 
     @classmethod
@@ -104,7 +103,7 @@ class TestEvernoteAnalytic(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        #mongo.connection.drop_database('test')
+        mongo.connection.drop_database('test')
         mongo.users.drop()
         mongo.notes.drop()
         # keep first test note
@@ -120,31 +119,32 @@ class TestEvernoteAnalytic(unittest.TestCase):
         note = self.en.create_note('test', 'this is the body of test 2')
         note = self.en.create_note('test', 'this is the body of test')
         note = self.en.create_note('test3', 'this is the body of test3')
-        self.en.initialize_db()
-        self.assertIn('test', self.en.word_count())
+        self.en.resync_db()
+        self.assertIn(u'test', self.en.word_count())
         self.assertTrue(dict(self.en.word_count()))
         self.assertTrue(self.en.word_count(words='intitle:test'))
 
     def test_analytic_topic_summary(self):
         """ topic summary depends on _lsa_extract """
         note = self.en.create_note('test', 'this is the body of test 2')
-        self.en.initialize_db()
+        self.en.resync_db()
 
     def test_analytic_flesch_reading_ease(self):
         pass
 
     def test_outside_knowledge(self):
         note = self.en.create_note('My math title', 'lets talk about science')
-        self.en.initialize_db()
+        self.en.resync_db()
         self.assertTrue(self.en.outside_knowledge(note.guid, 'science'))
+        print(self.en.outside_knowledge(note.guid, 'science'))
        
     def test_evernote_querying(self):
         pass
 
 def suite():
     suite = unittest.TestSuite()
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
-    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
+    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())

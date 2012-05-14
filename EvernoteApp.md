@@ -1,13 +1,13 @@
 ﻿#StupidMonkey
 
 ##Abstract
-The ways to visualize your thoughts are not very innovative. Boring notes and simple tabular like tools do not convey as much information as actually is hidden within a persons notes. I propose a more fluid, creative and insightful approach by utilizing dynamic visualizations of not just plain notes and small amounts of meta data. Far more  than just the standard user input, I want to highlight the hidden connections between things like note semantics, topic interest, and history of oneself. 
+The ways to visualize your thoughts are not very innovative. Boring notes and simple tabular like tools do not convey as much information as actually is hidden within a persons notes. I propose a more fluid, creative and insightful approach by utilizing dynamic visualizations of not just plain notes and small amounts of meta data. No, far more than just the standard user input, I want to highlight the hidden connections between things like note semantics, topic interest, and history of oneself recorded in their evernotes. 
 
 
 ##Problem Definition
 > “Defines what the problem is without any reference to possible solutions” -Code Complete
 
-The understanding of how continued note taking and learning new things, progresses oneself, and how that relates over time is too difficult to track and visualize. People learn without realizing what their learning and how that changes over time.
+The understanding of how continued note taking and learning new things progresses oneself's knowledge. How that relates over time is too difficult to track and visualize. People learn without realizing what their learning and how that changes over time.
 
 
 ##Solution:
@@ -20,19 +20,18 @@ Utilizing the storage and synchronization capabilities as well as a large user b
 > “Its the little details that are vital. Little things make big things happen -John Wooden
 
 * Intuitive in it's design.
-* Displays logical layouts of  a persons thoughts.
+* Displays logical layouts of a persons notes, notebooks and content.
 * Fast to display, must not have user feel as though time is wasted.
-* Easily customize-able in its feel, or at least seems that way to the user.
-
+* Easily customize-able in its feel and look, or at least appears that way to the user.
+* User can search through introspected data as well as flow through it's temporal nature if appropriate.
+* Colorful and attractive visualizations that render within 3 seconds.
+* Easily navigable options for customization.
+* Transparent policies on user data.
+* Compatibility within all modern browsers.
 
 ##Requirements:
 > "Describe in detail what the program is going to do” -Code Complete 
 
-1. User can search through introspected data as well as flow through it's temporal nature if appropriate.
-2. Colorful and attractive visualizations that render within 3 seconds.
-3. Easily navigable options for customization.
-4. Transparent policies on user data.
-5. Compatibility within  all modern browsers.
 
 ##System Overview:
 > If you can’t explain something to a six-year-old, you really don’t understand it yourself.” -Albert Einstein
