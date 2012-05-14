@@ -7,6 +7,7 @@ import unittest
 #cov.start()
 from enwrapper import *
 from helpers import mongo_connect
+from analytics import EvernoteProfileInferer
 
 #import evernote.edam.type.ttypes as Types
 
@@ -18,9 +19,6 @@ class TestEvernoteWrapper(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.en = EvernoteConnector(ENHOST, AUTHTOKEN, mongo)
-        for note in cls.en.get_notelist(0).notes:
-            cls.en.delete_note(note)
-        cls.en.empty_trash()
 
     @classmethod
     def tearDownClass(cls):
@@ -97,9 +95,6 @@ class TestEvernoteAnalytic(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.en = EvernoteProfileInferer(ENHOST, AUTHTOKEN, mongo)
-        for note in cls.en.get_notelist(1).notes:
-            cls.en.delete_note(note)
-        cls.en.empty_trash()
 
     @classmethod
     def tearDownClass(cls):
@@ -132,19 +127,19 @@ class TestEvernoteAnalytic(unittest.TestCase):
     def test_analytic_flesch_reading_ease(self):
         pass
 
-    def test_outside_knowledge(self):
+    def _test_outside_knowledge(self):
         note = self.en.create_note('My math title', 'lets talk about science')
         self.en.resync_db()
         self.assertTrue(self.en.outside_knowledge(note.guid, 'science'))
-        print(self.en.outside_knowledge(note.guid, 'science'))
+        #print(self.en.outside_knowledge(note.guid, 'science'))
        
     def test_evernote_querying(self):
         pass
 
 def suite():
     suite = unittest.TestSuite()
-    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())
