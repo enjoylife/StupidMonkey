@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import string
+import inspect
 from collections import Counter
 from Stemmer import Stemmer
 import unicodedata
@@ -204,5 +205,19 @@ class ProfileInferer(object):
         """
         pass
 
-if __name__ == '__main__':
-    pass
+def get_required_args(func):
+    args, varargs, varkw, defaults = inspect.getargspec(func)
+    if defaults:
+        args = args[:-len(defaults)]
+    return args   # *args and **kwargs are not required, so ignore them.
+
+def missing_args(func, argdict):
+    return set(get_required_args(func)).difference(argdict)
+
+def invalid_args(func, argdict):
+    args, varargs, varkw, defaults = inspect.getargspec(func)
+    if varkw: return set()  # All accepted
+    return set(argdict) - set(args)
+
+def is_callable_with_args(func, argdict):
+    return not missing_args(func, argdict) and not invalid_args(func, argdict)
