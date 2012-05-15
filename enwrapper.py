@@ -13,6 +13,8 @@ import evernote.edam.limits.constants as Limits
 
 from helpers import BasicXmlExtract, text_processer
 
+from pymongo.binary import Binary # must store md5hash in mongo binary
+
 from lxml import etree
 
 __all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
@@ -295,15 +297,12 @@ class EvernoteConnector(object):
         is_new = self.mongo.notes.find_one(
                 {'_id':note.guid},{'str_content_hash':1})
         # dont want to fetch same content
-        if not is_new or (is_new.get('str_content_hash') != note.contentHash):
+        if not is_new or is_new.get('str_content_hash') != Binary(note.contentHash):
             content =  self.note_client.getNoteContent(self.auth_token, note.guid)
             data = etree.fromstring(content, self.parser)
-            print note.contentHash
-            print type(note.contentHash)
             self.mongo.notes.update({'_id':note.guid},
                     {"$set":{'str_content':content, 'tokens_content':text_processer(data),
-                        'str_content_hash':unicode(note.contentHash)}},upsert=True)
-                        }},upsert=True)
+                        'str_content_hash':Binary(note.contentHash)}},upsert=True)
 
         ## add tag string names from this notebook if they are in this note
         tag_names = [tag.name for tag in self.note_client.listTagsByNotebook(
