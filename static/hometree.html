@@ -48,7 +48,7 @@ var vis = d3.select("#chart").append("svg")
   .append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-d3.json("/data/overview", function(json) {
+d3.json("/data/home", function(json) {
   root = json;
   root.x0 = height / 2;
   root.y0 = 0;

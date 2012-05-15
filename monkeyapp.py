@@ -6,9 +6,47 @@ import cherrypy
 import simplejson as json
 from bson import json_util
 
+from helpers import mongo_connect
+from enwrapper import *
+from analytics import EvernoteProfileInferer
+
+mongo = mongo_connect('test', extra=True)
+
 class Welcome(object):
 
     exposed = True
+
+    def __init__(self):
+        self.evernote = EvernoteProfileInferer(ENHOST, AUTHTOKEN, mongo)
+
+    @cherrypy.expose
+    def home(self):
+        """ Creates the user tree where the top root is the username. 
+        The root's immediate children are the notebooks. 
+        The notebooks children are the notes. 
+        """
+        self.evernote.resync_db()
+        tree = {}
+        tree['name'] = self.evernote.user.username
+        tree['children'] = []
+        user = self.evernote.m_user
+        for book in user.get('doc_notebooks'):
+            subtree = {}
+            subtree['name'] = book.get('str_name')
+            subtree['children'] = []
+            # find notes with this notebook and tag
+            for note in self.evernote.mongo.notes.find(
+                    {'_id_notebook':book.get('_id')},{'str_title':1}):
+                n = {'name':note.get('str_title')}
+                subtree['children'].append(n)
+            tree['children'].append(subtree)
+        return tree
+
+    @cherrypy.expose
+    def notes(self):
+        n = [n for n in self.evernote.mongo.notes.find()]
+        return str(n)
+
 
     @cherrypy.expose
     def default(self, extras='', more=''):
