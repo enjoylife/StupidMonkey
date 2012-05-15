@@ -185,17 +185,25 @@ class EvernoteProfileInferer(EvernoteConnector):
 
     These are the fields used in the mongo collections 
     mongo.users:
-        {_id: user_id} 
+        {_id: user_id} =  user guid
+        {doc_notebooks} = array of embedded docs, ex {_id: b.guid, str_name: b.name}
+        {doc_tags} = array of embedded docs, exx {_id: t.guid, str_name: t.name}
+        {int_logins} = counter for how many times we have created class 
+
+        ** New **
         {bool_lsa: False}  =  a boolean for lsa analysis. 
 
     mongo.notes:
-        {_id_user: self.user_id} 
-        {str_title: note.title}  
-        {_id_notebook: note.notebook} 
-        {_id_tags: [note.tags]} 
-        {str_tags: [tag_names]}
-        {str_content: note.content}
+        {_id_user: self.user_id} = the owner's guid
+        {str_title: note.title} = note title 
+        {_id_notebook: note.notebook} = this note's notebook guid 
+        {_id_tags: [note.tags]} =  the array of tags  guids 
+        {str_tags: [tag_names]} = array of actual tag names
+        {str_content: note.content} = note content
+        {tokens_resources: resource} = extracted tokens from note resource
+        {str_content_hash: hash} = content md5 Hash stored in pymongo.Binary
 
+        ** New **
         {tokens_content: [~note.content.split()]} =  the extracted words for this note
         {tokens_lsa: [~tokens.lsa.reduce()]} = the reduced vectors for note
     """ 
@@ -481,14 +489,5 @@ class EvernoteProfileInferer(EvernoteConnector):
         pass
 
 if __name__ == '__main__':
-    test = u""" Alot of python magic and helpers in this list comprehension
-     If this is one area where a more precise C implementation would be amazing
-     but more work. Matthew's c$$l looking #beast $mode."""
-    #print text_processer(test,False)
-    #print text_processer(test,)
-    print quantile(range(10), p=0.5) == median(range(10))
-    a = 1
-    b = 1000
-    U = [float(i-a)/(b-a) for i in range(a,b)] # uniform distribution
-    print abs(-1.2 - kurtosis(U)) < 0.0001
+    pass
 
