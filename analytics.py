@@ -167,6 +167,10 @@ class EvernoteProfileInferer(EvernoteConnector):
     Holds a self.wiki search class to provide searching for related wiki
     articles
 
+    Methods that work on multiple notes, notebooks, etc return a dict with the
+    keys as the guid's, otherwise the method returns the analytic data in dict
+    with keys and data specific to that method
+
     Ideas:
         Boxplot over all users in a certain method, so you would show their
     totals but then also show how that number is relative to others. Maybe this
@@ -242,7 +246,7 @@ class EvernoteProfileInferer(EvernoteConnector):
                 # remove old doc because corpus will still have old content
                 corpus.remove(d)
             corpus.extend(docs)
-            self.save_corpus(corpus)
+            self.save_corpus(corpus,update=True)
         # dont need the sync, do nothing
         elif corpus_check:
             return
@@ -398,18 +402,18 @@ class EvernoteProfileInferer(EvernoteConnector):
             Note html links in their own counter?
         """
         c = Counter()
-
+        
         if not filterargs:
             for x in self.mongo.notes.find(
                     {'_id_user':self.user_id},{'tokens_content':1}):
                 c.update(x['tokens_content'])
             return c
-
-        meta_list = [x.guid for x in self.get_notelist_guid_only(**filterargs).notes]
-        for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
-                {'tokens_content':1}):
-            c.update(x['tokens_content'])
-        return c
+        else:
+            meta_list = [x.guid for x in self.get_notelist_guid_only(0, **filterargs).notes]
+            for x in self.mongo.notes.find({'_id':{'$in':meta_list}},
+                    {'tokens_content':1}):
+                c.update(x['tokens_content'])
+            return c
     
     def word_importance(self, word):
         """ How important is this word/phrases, or more techniquely what is the
@@ -475,7 +479,6 @@ class EvernoteProfileInferer(EvernoteConnector):
         in their note's content.
         """
         pass
-
 
 if __name__ == '__main__':
     test = u""" Alot of python magic and helpers in this list comprehension

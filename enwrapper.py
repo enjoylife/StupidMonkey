@@ -114,6 +114,7 @@ class EvernoteConnector(object):
             self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
         else:
             self.resync_db()
+            self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
 
     @property
     def user(self):
@@ -122,6 +123,10 @@ class EvernoteConnector(object):
             Currently only used for the user's guid so it could just be a stored
             variable on this class, rather than calling the getUser everytime."""
         return self.user_client.getUser(self.auth_token)
+
+    @property
+    def m_user(self):
+        return self.mongo.users.find_one({'_id':self.user_id})
 
     ### Editing / Testing Helpers ###
 
@@ -372,7 +377,7 @@ class EvernoteConnector(object):
                                 note.resources]))
                     self.mongo.notes.update({'_id':note.guid},
                         {"$set":{
-                        '__id_user':self.user_id, '_id_notebook':note.notebookGuid,
+                        '_id_user':self.user_id, '_id_notebook':note.notebookGuid,
                         'str_title':note.title,'_id_tags':note.tagGuids,
                         'str_tags': tag_names, 'str_content':note.content, 
                         'tokens_content' :text_processer(data),
