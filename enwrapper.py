@@ -73,6 +73,10 @@ class EvernoteConnector(object):
     These are the fields used in the mongo collections 
     mongo.users:
         {_id: user_id} =  user guid
+        {doc_notebooks} = array of  docs, ex:{_id: b.guid, str_name: b.name, _id_tags:[ tags.guid[}
+        {doc_tags} = array of embedded docs, exx {_id: t.guid, str_name: t.name}
+        {int_logins} = counter for how many times we have created class 
+
     mongo.notes:
         {_id_user: self.user_id} = the owner's guid
         {str_title: note.title} = note title 
@@ -80,11 +84,13 @@ class EvernoteConnector(object):
         {_id_tags: [note.tags]} =  the array of tags  guids 
         {str_tags: [tag_names]} = array of actual tag names
         {str_content: note.content} = note content
+        {tokens_resources: resource} = extracted tokens from note resource
+        {str_content_hash: hash} = content md5 Hash stored in pymongo.Binary
 
     TODO:
         1. Error checking, alot of it, that's the whole reseason behind the verbose
        method calling.
-        2. storing of time info for both resource and note content.
+        2. storing of time info for notebooks, tags, resources and note content.
     """
 
     def __init__(self, base_uri, note_url, mongohandle):
@@ -113,7 +119,6 @@ class EvernoteConnector(object):
         if not self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
             user_scaffold =  {
                 '_id': self.user.id,
-                'bool_lsa':False,
                 }
             # create the skeletn
             user_id = self.mongo.users.insert(user_scaffold,safe=True)
@@ -121,10 +126,10 @@ class EvernoteConnector(object):
             #TODO: fix this bug where I have to resync because highUSN is None
             # when using self.yeild_sync in initialize_db() 
             self.resync_db()
-            self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
+            self.mongo.users.update({'_id':self.user_id},{'$inc':{'int_logins':1}})
         else:
             self.resync_db()
-            self.mongo.users.update({'_id':self.user_id},{'$inc':{'logins':1}})
+            self.mongo.users.update({'_id':self.user_id},{'$inc':{'int_logins':1}})
 
     @property
     def user(self):
@@ -241,6 +246,9 @@ class EvernoteConnector(object):
         TODO: put latest_usn and last_updated into class properties that call
         mongo.users"""
         syncState = self.note_client.getSyncState(self.auth_token)
+        print 'getting syncState'
+        print self.latest_usn
+        print syncState.updateCount
         return (self.last_updated < syncState.fullSyncBefore) or (self.latest_usn < syncState.updateCount)
 
     @property
@@ -268,15 +276,17 @@ class EvernoteConnector(object):
         Fields that are returned:
             * Notes
             * Notebooks
+            * Tags
             * expunged (if expunged is True)
             * TODO.... more evernote data
         """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
-                includeNotes=True, includeResources=True, includeNotebooks=True)
+                includeNotes=True, includeResources=True, 
+                includeNotebooks=True, includeTags=True)
         while more:
             new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token, initial,
-                    256,filter)
+                    500,filter)
             # carfull if no objects in this chunk this is None and we dont want 
             # to have a none object for our self.latest_usn
             print new_stuff.chunkHighUSN
@@ -304,9 +314,10 @@ class EvernoteConnector(object):
                     {"$set":{'str_content':content, 'tokens_content':text_processer(data),
                         'str_content_hash':Binary(note.contentHash)}},upsert=True)
 
-        ## add tag string names from this notebook if they are in this note
-        tag_names = [tag.name for tag in self.note_client.listTagsByNotebook(
-                self.auth_token,note.notebookGuid) if note.tagGuids and tag.guid in note.tagGuids]
+        if note.tagGuids:
+            # we want  string names too
+            tag_names = [tag.name for tag in self.note_client.listTagsByNotebook(
+                self.auth_token,note.notebookGuid) if tag.guid in note.tagGuids]
 
         if note.resources:
             resource_string = text_processer(
@@ -328,7 +339,7 @@ class EvernoteConnector(object):
         new_notes = []
         if not self.need_sync:
             return None
-        for new_stuff in self.yield_sync(expunged=expunged, initial=self.latest_usn):
+        for new_stuff in self.yield_sync( initial=self.latest_usn, expunged=expunged):
             print "GETTING RESYNCED NEW THINGS"
 
             # database deleted notes
@@ -338,8 +349,17 @@ class EvernoteConnector(object):
 
             # new/updated notebooks 
             if new_stuff.notebooks:
-                notebooks = [{'_id':b.guid, 'str_name':b.name} for b in new_stuff.notebooks]
-                self.mongo.users.update({'_id':self.user_id},{'$push':{'doc_notebooks':notebooks}})
+                notebooks = [{'_id':b.guid, 'str_name':b.name,
+                    '_id_tags':[t.guid for t in 
+                        self.note_client.listTagsByNotebook(self.auth_token,b.guid)]} 
+                            for b in new_stuff.notebooks]
+                self.mongo.users.update({'_id':self.user_id},{'$addToSet':{'doc_notebooks':{'$each':notebooks}}})
+
+
+            # new tags
+            if new_stuff.tags:
+                tags = [{'_id':t.guid, 'str_name': t.name} for t in new_stuff.tags]
+                self.mongo.users.update({'_id':self.user_id},{'$addToSet':{'doc_tags':{'$each':tags}}})
 
             # new notes
             if new_stuff.notes:
@@ -365,7 +385,6 @@ class EvernoteConnector(object):
         content += '<en-note>' + innerContent
         content += '</en-note>'
         return content
-
  
 if __name__ == "__main__":
     pass

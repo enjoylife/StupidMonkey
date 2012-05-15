@@ -38,9 +38,9 @@ class TestEvernoteWrapper(unittest.TestCase):
         E = EvernoteConnector(ENHOST, AUTHTOKEN, mongo)
         self.assertIsNot(E, self.en)
         self.assertEqual(False, E.need_sync)
-        self.assertEqual(2, E.m_user['logins'])
+        self.assertEqual(2, E.m_user['int_logins'])
 
-    def _test_evernote_note(self):
+    def test_evernote_note(self):
         note = self.en.create_note('first test note', 'this is the body of the stuff')
         self.assertEqual('first test note',note.title)
         self.assertIn('this is the body',self.en.get_note_content(note))
@@ -114,11 +114,9 @@ class TestEvernoteAnalytic(unittest.TestCase):
         note = self.en.create_note('test', 'this is the body of test')
         note = self.en.create_note('test3', 'this is the body of test3')
         self.en.resync_db()
-        print self.en.word_count()
         self.assertIn(u'test', self.en.word_count())
         self.assertTrue(dict(self.en.word_count()))
-        #self.assertTrue(dict(self.en.word_count(words='intitle:test')))
-        print(self.en.word_count(words='intitle:test'))
+        self.assertTrue(dict(self.en.word_count(words='intitle:test')))
 
     def test_analytic_topic_summary(self):
         """ topic summary depends on _lsa_extract """
@@ -135,7 +133,7 @@ class TestEvernoteAnalytic(unittest.TestCase):
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
-    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())
