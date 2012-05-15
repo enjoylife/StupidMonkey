@@ -72,7 +72,8 @@ def text_processer(doc,punc=True):
      If this is one area where a more precise C implementation would be
      alot faster but more work."""
     # get ride of weird unicode that pops up 
-    doc = unicodedata.normalize('NFKD',doc).encode('ascii','ignore')
+    if isinstance(doc, unicode):
+        doc = unicodedata.normalize('NFKD',doc).encode('ascii','ignore')
     if  not punc:
         # don't want puncuation, delete it 
         doc = doc.translate(TABLE, string.punctuation)
