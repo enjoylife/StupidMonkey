@@ -7,13 +7,13 @@ The ways to visualize your thoughts are not very innovative. Boring notes and si
 ##Problem Definition
 > “Defines what the problem is without any reference to possible solutions” -Code Complete
 
-The understanding of how continued note taking and learning new things progresses oneself's knowledge. How that relates over time is too difficult to track and visualize. People learn without realizing what their learning and how that changes over time.
+The understanding of how continued note taking and learning new things progresses oneself's knowledge. How that relates over time is too difficult to track and visualize. People learn without realizing what their learning and how that changes over time.__Current ways to visualize and infer knowledge from notes are terrible__.
 
 
 ##Solution:
 > “All progress is precarious, and the solution of one problem brings us face to face with another problem.” -Martin Luther King, Jr.
 
-Utilizing the storage and synchronization capabilities as well as a large user base of Evernote users, create a dynamic web based application that shows users detailed analysis of what the have taken notes of. Primarily focusing on the ease of discovering things about oneself through already written and available user data. 
+Utilizing the storage and synchronization capabilities as well as a large user base of Evernote users, create a dynamic web based application that shows users detailed analysis of what the have taken notes of. Primarily focusing on the ease of discovering things about oneself through already Taken notes, and wiki like databases. Inoder to fully expose that analysis create clear, intuitive, and engaing visualizations to display this extra knowledge.
 
 
 ##Keys to remember:
@@ -24,13 +24,17 @@ Utilizing the storage and synchronization capabilities as well as a large user b
 * Fast to display, must not have user feel as though time is wasted.
 * Easily customize-able in its feel and look, or at least appears that way to the user.
 * User can search through introspected data as well as flow through it's temporal nature if appropriate.
-* Colorful and attractive visualizations that render within 3 seconds.
+* Colorful and attractive visualizations that transition within a couple of seconds.
 * Easily navigable options for customization.
 * Transparent policies on user data.
 * Compatibility within all modern browsers.
 
 ##Requirements:
 > "Describe in detail what the program is going to do” -Code Complete 
+
+* Hierarchical clustering displaying the connections from the different notebooks, to the tags contained in them to finally the notes that are connected to the tags.
+* clickable portions of note content that can be searched by outside sources, wikipedia, etc.
+* Treemap repersentation of analytics, wordcount, number of notes per tag, notebook, etc.
 
 
 ##System Overview:
