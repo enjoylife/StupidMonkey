@@ -135,7 +135,7 @@ class TestEvernoteAnalytic(unittest.TestCase):
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteAnalytic))
-    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
+    #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestEvernoteWrapper))
     return suite
 if __name__=='__main__':
     unittest.TextTestRunner(verbosity=2).run(suite())

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+
 import os.path
 
-# Web App
 import cherrypy
 import simplejson as json
 from bson import json_util
@@ -28,11 +28,12 @@ def bson_json_handler(*args, **kwargs):
 ###############################################
 
 root = Welcome()
+root.data = Welcome()
 
 conf = {
     'global': {
         'server.socket_host': '0.0.0.0',
-        'server.socket_port': 8000,
+        'server.socket_port': 5000,
     },
     '/': {
         'tools.staticdir.root': os.path.dirname(os.path.abspath(__file__)),

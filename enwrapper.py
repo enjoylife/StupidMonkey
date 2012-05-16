@@ -105,9 +105,17 @@ class EvernoteConnector(object):
 
         # evernote  data for api and sync calls
         self.user_id = self.user_client.getUser(self.auth_token).id
+        # for content extraction
+        self.parser = etree.HTMLParser(target=BasicXmlExtract())
         self.mongo = mongohandle
         if not self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
-            self.initialize_db()
+            user_scaffold =  {
+                '_id': self.user.id,
+                'bool_lsa':False,
+                }
+            # create the skeletn
+            user_id = self.mongo.users.insert(user_scaffold,safe=True)
+            #self.initialize_db()
             #TODO: fix this bug where I have to resync because highUSN is None
             # when using self.yeild_sync in initialize_db() 
             self.resync_db()
@@ -212,7 +220,7 @@ class EvernoteConnector(object):
                 note.content = self.note_client.getNoteContent(self.auth_token, note.guid)
                 yield note
 
-    def yield_note_content_meta(self, initial=0, **filterargs):
+    def yield_notelist_content_meta(self, initial=0, **filterargs):
         """ Yields a note plus content from a noteMetadata object that has it's
         fields filled in according to the self.get_notelist_meta function.
         """
@@ -257,17 +265,19 @@ class EvernoteConnector(object):
         """ Gathers any  content for this class to use 
         Fields that are returned:
             * Notes
+            * Notebooks
             * expunged (if expunged is True)
             * TODO.... more evernote data
         """
         more = True
         filter = NoteStore.SyncChunkFilter(includeExpunged=expunged,
-                includeNotes=True, includeResources=True)
+                includeNotes=True, includeResources=True, includeNotebooks=True)
         while more:
             new_stuff = self.note_client.getFilteredSyncChunk(self.auth_token, initial,
                     256,filter)
             # carfull if no objects in this chunk this is None and we dont want 
             # to have a none object for our self.latest_usn
+            print new_stuff.chunkHighUSN
             if new_stuff.chunkHighUSN:
                 initial = new_stuff.chunkHighUSN
             ## check to see if anymore stuff
@@ -277,117 +287,69 @@ class EvernoteConnector(object):
                 self.last_updated = new_stuff.currentTime
             yield new_stuff
 
-    def initialize_db(self):
-        """ Performs the initial content retrieval when the database
-        encounters an unseen user.The amount of content
-        and certain types returned are determined by the
-        self.yield_notelist_content
-
-        Returns the mongo.users _id  for the new user if this is really the
-        first time we have seen this user, else it returns None and just calls
-        self.resync_db
-        """
-        resource_string = None
+    def sync_note(self, note):
+        """ simplifies the code for the resync_db method """
         tag_names = None
-        
-        parser = etree.HTMLParser(target=BasicXmlExtract())
-        user_scaffold =  {
-            '_id': self.user.id,
-            'bool_lsa':False,
-            }
-        # create the skeletn
-        user_id = self.mongo.users.insert(user_scaffold,safe=True)
-        ## now lets  go through the iterable of different types   and update 
-        for new_stuff in self.yield_sync(expunged=False, initial=0):
-            # hold all the notes till ready to send a batch to mongo
-            notes =[]
-            if new_stuff.notes:
-                for note in self.yield_notelist_content(new_stuff.notes):
-                    ## dont want to store inactive things
-                    if note.active:
-                        ## Parsing data with lxml into a big string ##
-                        data_string = etree.fromstring(note.content, parser)
-                        ## add tag string names from this notebook if they are in this note
-                        if note.tagGuids:
-                            tag_names = [tag.name for tag in \
-                                self.note_client.listTagsByNotebook(
-                                self.auth_token,note.notebookGuid) if tag.guid
-                                in note.tagGuids]
-                        if note.resources:
-                            resource_string = text_processer(
-                                    " ".join([self.note_client.getResourceSearchText(
-                                self.auth_token,r.guid) for r in
-                                note.resources]))
+        resource_string = None
+        # check if this is a completley new note
+        is_new = self.mongo.notes.find_one(
+                {'_id':note.guid},{'str_content_hash':1})
+        # dont want to fetch same content
+        if not is_new or (is_new.get('str_content_hash') != note.contentHash):
+            content =  self.note_client.getNoteContent(self.auth_token, note.guid)
+            data = etree.fromstring(content, self.parser)
+            print note.contentHash
+            print type(note.contentHash)
+            self.mongo.notes.update({'_id':note.guid},
+                    {"$set":{'str_content':content, 'tokens_content':text_processer(data),
+                        'str_content_hash':unicode(note.contentHash)}},upsert=True)
+                        }},upsert=True)
 
-                        n = { '_id':note.guid, '_id_user':user_id, 
-                            '_id_notebook':note.notebookGuid,
-                            'str_title':note.title,'_id_tags':note.tagGuids,
-                            'str_tags': tag_names,
-                            'str_content':note.content, 
-                            'tokens_content': text_processer(data_string),
-                            'tokens_resources': resource_string,
-                            }
-                        notes.append(n)
-                # insert the  note in its own collection 
-                # because maybe large note data string?
-                notes_id = self.mongo.notes.insert(notes)
-        return user_id
+        ## add tag string names from this notebook if they are in this note
+        tag_names = [tag.name for tag in self.note_client.listTagsByNotebook(
+                self.auth_token,note.notebookGuid) if note.tagGuids and tag.guid in note.tagGuids]
 
-    def resync_db(self):
+        if note.resources:
+            resource_string = text_processer(
+                    " ".join([self.note_client.getResourceSearchText(
+                    self.auth_token,r.guid) for r in
+                    note.resources]))
+        self.mongo.notes.update({'_id':note.guid},
+            {"$set":{
+            '_id_user':self.user_id, '_id_notebook':note.notebookGuid,
+            'str_title':note.title,'_id_tags':note.tagGuids,
+            'str_tags': tag_names, 'tokens_resources': resource_string,
+            }},  upsert=True)
+        return note.guid
+
+    def resync_db(self, expunged=True):
         """ Performs the syncing if we already have initialized 
-        Returns the resynced note guids
-        TODO: also sync Analytic methods
+        Returns new note guids in a list
         """
-        tag_names = None
-        resource_string = None
-        new_note_guids = []
-        parser = etree.HTMLParser(target=BasicXmlExtract())
+        new_notes = []
         if not self.need_sync:
             return None
-        for new_stuff in self.yield_sync(expunged=True, initial=self.latest_usn):
-            #    print "GETTING RESYNCED NEW THINGS"
+        for new_stuff in self.yield_sync(expunged=expunged, initial=self.latest_usn):
+            print "GETTING RESYNCED NEW THINGS"
 
+            # database deleted notes
             if new_stuff.expungedNotes:
                 inactive_notes = [{'_id':n} for n in new_stuff.expungedNotes]
-                # collection 
                 self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
 
+            # new/updated notebooks 
+            if new_stuff.notebooks:
+                notebooks = [{'_id':b.guid, 'str_name':b.name} for b in new_stuff.notebooks]
+                self.mongo.users.update({'_id':self.user_id},{'$push':{'doc_notebooks':notebooks}})
+
+            # new notes
             if new_stuff.notes:
-                new_notes = []
-                inactive_notes =[]
-                for note in self.yield_notelist_content(new_stuff.notes):
-                    ## dont want to store inactive things
-                    if not note.active:
-                        inactive_notes.append(note.guid)
-                        continue
+                new_notes = [self.sync_note(n) for n in new_stuff.notes if n.active]
+                # user deleted notes
+                inactive_notes = [self.sync_note(n) for n in new_stuff.notes if not n.active]
+                self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
 
-                    new_note_guids.append(note.guid)
-                    data = etree.fromstring(note.content, parser)
-                    ## add tag string names from this notebook if they are in this note
-                    if note.tagGuids:
-                        tag_names = [tag.name for tag in \
-                                self.note_client.listTagsByNotebook(
-                                self.auth_token,note.notebookGuid) if tag.guid
-                                in note.tagGuids]
-
-                    if note.resources:
-                        resource_string = text_processer(
-                                " ".join([self.note_client.getResourceSearchText(
-                                self.auth_token,r.guid) for r in
-                                note.resources]))
-                    self.mongo.notes.update({'_id':note.guid},
-                        {"$set":{
-                        '_id_user':self.user_id, '_id_notebook':note.notebookGuid,
-                        'str_title':note.title,'_id_tags':note.tagGuids,
-                        'str_tags': tag_names, 'str_content':note.content, 
-                        'tokens_content' :text_processer(data),
-                        'tokens_resources': resource_string,
-                        }},  upsert=True)
-                    new_notes.append(note.guid)
-                if inactive_notes:
-                    # collection 
-                    self.mongo.notes.remove({'_id':{'$in': inactive_notes}})
-        return new_note_guids
+        return new_notes
 
     def remove_from_db(self):
         """ Removes a note's content from the database
