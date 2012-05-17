@@ -6,6 +6,8 @@ from collections import Counter
 from Stemmer import Stemmer
 import unicodedata
 
+#import redis
+#from redis import ConnectionError
 from pymongo import Connection 
 from pymongo.errors import ConnectionFailure, OperationFailure
 
