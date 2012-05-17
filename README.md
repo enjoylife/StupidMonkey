@@ -1,7 +1,7 @@
 StupidMonkey
 ============
 ----
-A student project diving into understanding api's and the data storage / manipulation involved. Text analysis and graphical views of the results. And improving code readability for the future me.
+A student project diving into understanding api's and the data storage / manipulation involved. Text analysis and graphical views of the results. And improving code readability for the future me. [Design goals.][design]
 
 Requirements
 ============
@@ -25,3 +25,4 @@ Documenting code, whether it be because it is some complex process which you pro
 [pymongo]: https://github.com/mongodb/mongo-python-driver
 [pattern]: http://www.clips.ua.ac.be/pages/pattern
 [d3]: https://github.com/mbostock/d3/wiki
+[design]: https://github.com/enjoylife/StupidMonkey/blob/master/idea.md
