@@ -51,7 +51,7 @@ def redis_connect():
 
 def gen_stops():
     english_ignore = []
-    with open('bigstoplist.txt',  'r') as stops:
+    with open('stoplist.txt',  'r') as stops:
         for word in stops:
             english_ignore.append(word.strip())
     return frozenset(english_ignore)

@@ -1,1 +1,6 @@
-export PYTHONPATH=../evernote-sdk-python/lib/;
+export PYTHONPATH=/home/matthew/Programming/EvernoteProject/evernote-sdk-python/lib/:/home/matthew/Programming/EvernoteProject/StupidMonkey/objects;
+../mongodb-linux-x86_64-2.0.3/bin/mongod & 
+cd ../d3/
+python -m SimpleHTTPServer 8000 & 
+cd ../StupidMonkey/
+

@@ -1,20 +1,22 @@
 from math import sqrt, floor, modf
 from collections import Counter
+from itertools import izip
 import unicodedata
 
-from pattern.web import Wikipedia
 from pattern.vector import Corpus, Document
+from pattern.web import Wikipedia
 
 from enwrapper import EvernoteConnector
  
-### STRING READABILITY #############################################################################
-# 0.9-1.0 = easily understandable by 11-year old.
-# 0.6-0.7 = easily understandable by 13- to 15-year old.
-# 0.0-0.3 = best understood by university graduates.
-
+### Begin stats helpers ###
 def flesch_reading_ease(string):
     """ Returns the readability of the string as a value between 0.0-1.0:
         0.30-0.50 (difficult) => 0.60-0.70 (standard) => 0.90-1.00 (very easy).
+        0.9-1.0 = easily understandable by 11-year old.
+        0.6-0.7 = easily understandable by 13- to 15-year old.
+        0.0-0.3 = best understood by university graduates.
+
+
     """
     def count_syllables(word, vowels="aeiouy"):
         n = 0
@@ -158,6 +160,11 @@ def boxplot(list, **kwargs):
     Q2 = quantile(s, p=0.50, sort=False, **kwargs)
     Q3 = quantile(s, p=0.75, sort=False, **kwargs)
     return float(min(s)), Q1, Q2, Q3, float(max(s))
+
+## End Stats ##
+
+ def dot_product(a, b):
+	return sum(x*y for (x,y) in izip(a,b))
  
 ### Main ###
 class EvernoteProfileInferer(EvernoteConnector):
