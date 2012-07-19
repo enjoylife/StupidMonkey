@@ -6,22 +6,23 @@ import thrift.transport.THttpClient as THttpClient
 import evernote.edam.userstore.UserStore as UserStore
 import evernote.edam.userstore.constants as UserStoreConstants
 import evernote.edam.notestore.NoteStore as NoteStore
-import evernote.edam.notestore.constants as NoteStoreConstants
+#import evernote.edam.notestore.constants as NoteStoreConstants
 import evernote.edam.type.ttypes as Types
 import evernote.edam.error.ttypes as Errors
 import evernote.edam.limits.constants as Limits
 
 from helpers import BasicXmlExtract, text_processer
 
-from pymongo.binary import Binary # must store md5hash in mongo binary
+from pymongo.binary import Binary  # must store md5hash in mongo binary
 
 from lxml import etree
 
-__all__ = ['Errors','Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
+__all__ = ['Errors', 'Limits', 'Types', 'ENHOST', 'AUTHTOKEN',
         'en_userstore_setup', 'en_notestore_setup',
         'NoteStore', 'EvernoteConnector']
 
-# Once completed development, simply change "sandbox.evernote.com" to "www.evernote.com".
+#Once completed development, simply change 
+#"sandbox.evernote.com" to "www.evernote.com".
 ENHOST = "sandbox.evernote.com"
 
 # Real applications authenticate with Evernote using OAuth
@@ -60,37 +61,39 @@ def en_notestore_setup(user_note_store_url):
                 THttpClient.THttpClient(user_note_store_url)))
     return nstore
 
+
 ### Main ###
 class EvernoteConnector(object):
-    """ This is to ease the connection to the evernote thrift api, and provide a
+    """ This is to ease the connection to the evernote thrift api, provide a
     mongo database layer for speeding up requests for analytic content or just
     straight up  reducing calls to the Evernote servers.
 
-    Naming convention of the public methods is to be pep8, which is  
+    Naming convention of the public methods is to be pep8, which is 
     to help distinguish between the methods of this class and the thrift
     generated classes, in which they use camelCase.
 
-    These are the fields used in the mongo collections 
+    These are the fields used in the mongo collections
     mongo.users:
         {_id: user_id} =  user guid
-        {doc_notebooks} = array of  docs, ex:{_id: b.guid, str_name: b.name, _id_tags:[ tags.guid[}
-        {doc_tags} = array of embedded docs, exx {_id: t.guid, str_name: t.name}
-        {int_logins} = counter for how many times we have created class 
+        {doc_notebooks} = array of docs,
+            ex:{_id: b.guid, str_name: b.name, _id_tags:[ tags.guid[}
+        {doc_tags} = array of embedded docs,
+            ex {_id: t.guid, str_name: t.name}
+        {int_logins} = counter for how many times we have created class
 
     mongo.notes:
         {_id_user: self.user_id} = the owner's guid
-        {str_title: note.title} = note title 
-        {_id_notebook: note.notebook} = this note's notebook guid 
-        {_id_tags: [note.tags]} =  the array of tags  guids 
+        {str_title: note.title} = note title
+        {_id_notebook: note.notebook} = this note's notebook guid
+        {_id_tags: [note.tags]} =  the array of tags  guids
         {str_tags: [tag_names]} = array of actual tag names
         {str_content: note.content} = note content
         {tokens_resources: resource} = extracted tokens from note resource
         {str_content_hash: hash} = content md5 Hash stored in pymongo.Binary
 
     TODO:
-        1. Error checking, alot of it, that's the whole reseason behind the verbose
-       method calling.
-        2. storing of time info for notebooks, tags, resources and note content.
+        1. Error checking,  whole reseason behind the verbo method calling.
+        2. storing of time for notebooks, tags, resources and note content.
     """
 
     def __init__(self, base_uri, note_url, mongohandle):
@@ -116,8 +119,8 @@ class EvernoteConnector(object):
         # for content extraction
         self.parser = etree.HTMLParser(target=BasicXmlExtract())
         self.mongo = mongohandle
-        if not self.mongo.users.find_one({'_id':self.user_id},{'_id':1}):
-            user_scaffold =  {
+        if not self.mongo.users.find_one({'_id': self.user_id},{'_id':1}):
+            user_scaffold = {
                 '_id': self.user.id,
                 }
             # create the skeletn

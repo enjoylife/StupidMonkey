@@ -7,7 +7,8 @@ from pattern.vector import Corpus, Document
 from pattern.web import Wikipedia
 
 from enwrapper import EvernoteConnector
- 
+
+
 ### Begin stats helpers ###
 def flesch_reading_ease(string):
     """ Returns the readability of the string as a value between 0.0-1.0:
@@ -20,13 +21,13 @@ def flesch_reading_ease(string):
     """
     def count_syllables(word, vowels="aeiouy"):
         n = 0
-        p = False # True if the previous character was a vowel.
+        p = False  # True if the previous character was a vowel.
         for ch in word.endswith("e") and word[:-1] or word:
             v = ch in vowels
             n += int(v and not p)
             p = v
         return n
-    if len(string) <  3:
+    if len(string) < 3:
         return 1.0
     string = string.strip()
     string = string.strip("\"'().")
@@ -42,7 +43,7 @@ def flesch_reading_ease(string):
     # Use the Farr, Jenkins & Patterson algorithm,
     # which uses simpler syllable counting (count_syllables() is the weak point here). 
     R = 1.599 * sum(1 for v in y if v == 1) * 100 / w - 1.015*w/s - 31.517
-    R = max(0.0, min(R*0.01, 1.0))
+    R = max(0.0, min(R * 0.01, 1.0))
     return R
 
 def mean(list):
@@ -148,6 +149,7 @@ def quantile(list, p=0.5, sort=True, a=1, b=-1, c=0, d=1):
     i = int(floor(i))
     return s[i] + (s[i+1] - s[i]) * (c + d * f)
 
+
 def boxplot(list, **kwargs):
     """ Returns a tuple (min(list), Q1, Q2, Q3, max(list)) for the given list of values.
         Q1, Q2, Q3 are the quantiles at 0.25, 0.5, 0.75 respectively.
@@ -163,9 +165,9 @@ def boxplot(list, **kwargs):
 
 ## End Stats ##
 
- def dot_product(a, b):
-	return sum(x*y for (x,y) in izip(a,b))
- 
+def dot_product(a, b):
+    return sum(x*y for (x,y) in izip(a,b))
+
 ### Main ###
 class EvernoteProfileInferer(EvernoteConnector):
     """ This is the  class that is responsible for extracting all the info

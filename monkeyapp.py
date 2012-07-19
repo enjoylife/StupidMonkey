@@ -12,6 +12,7 @@ from analytics import EvernoteProfileInferer
 
 mongo = mongo_connect('test', extra=True)
 
+
 class Welcome(object):
 
     exposed = True
@@ -21,9 +22,9 @@ class Welcome(object):
 
     @cherrypy.expose
     def home(self):
-        """ Creates the user tree where the top root is the username. 
-        The root's immediate children are the notebooks. 
-        The notebooks children are the notes. 
+        """ Creates the user tree where the top root is the username.
+        The root's immediate children are the notebooks.
+        The notebooks children are the notes.
         """
         self.evernote.resync_db()
         tree = {}
@@ -36,8 +37,8 @@ class Welcome(object):
             subtree['children'] = []
             # find notes with this notebook and tag
             for note in self.evernote.mongo.notes.find(
-                    {'_id_notebook':book.get('_id')},{'str_title':1}):
-                n = {'name':note.get('str_title')}
+                    {'_id_notebook': book.get('_id')}, {'str_title': 1}):
+                n = {'name': note.get('str_title')}
                 subtree['children'].append(n)
             tree['children'].append(subtree)
         return tree
@@ -47,14 +48,15 @@ class Welcome(object):
         n = [n for n in self.evernote.mongo.notes.find()]
         return str(n)
 
-
     @cherrypy.expose
     def default(self, extras='', more=''):
         return {"test": "hellow world"}
 
+
 ########################################
 ### Cherrypy Custom Tools and Hooks ####
 ########################################
+
 
 def bson_json_handler(*args, **kwargs):
     """ Mongodb json handler for cherrypy """
@@ -78,15 +80,15 @@ conf = {
         },
     '/static': {
         'tools.staticdir.on': True,
-        'tools.staticdir.dir':'static',
+        'tools.staticdir.dir': 'static',
         },
     '/evernote': {
         #'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
-        'tools.json_out.on' : True ,
+        'tools.json_out.on': True,
     },
     '/data': {
-        'tools.json_out.on' : True ,
-        'tools.json_out.handler' : bson_json_handler,
+        'tools.json_out.on': True,
+        'tools.json_out.handler': bson_json_handler,
     }
 }
 if __name__ == '__main__':
